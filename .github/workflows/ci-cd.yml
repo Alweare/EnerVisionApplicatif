@@ -1,0 +1,374 @@
+name: CI/CD
+
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: enervisiong3
+
+jobs:
+
+  # ============================================================
+  # Détection des services impactés
+  # ============================================================
+
+  changes:
+    name: Detect impacted services
+    runs-on: ubuntu-latest
+
+    outputs:
+      services: ${{ steps.services.outputs.services }}
+      has_changes: ${{ steps.services.outputs.has_changes }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v47
+
+      - name: Build impacted services matrix
+        id: services
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SERVICES=()
+          CHANGED_FILES="${{ steps.changed-files.outputs.all_changed_files }}"
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          for file in $CHANGED_FILES; do
+            case "$file" in
+              backend/authentication/*)
+                SERVICES+=("authentication")
+                ;;
+              backend/consumption/*)
+                SERVICES+=("consumption")
+                ;;
+              backend/etl/*)
+                SERVICES+=("etl")
+                ;;
+              backend/prediction/*)
+                SERVICES+=("prediction")
+                ;;
+              backend/recommandation/*)
+                SERVICES+=("recommandation")
+                ;;
+              backend/health/*)
+                SERVICES+=("health")
+                ;;
+              backend/core/*)
+                SERVICES+=("core")
+                ;;
+              backend/workerIngestion/*)
+                SERVICES+=("workerIngestion")
+                ;;
+          
+            esac
+          done
+
+          if [ ${#SERVICES[@]} -gt 0 ]; then
+            UNIQUE_SERVICES=$(printf "%s\n" "${SERVICES[@]}" | sort -u)
+            JSON=$(printf "%s\n" "$UNIQUE_SERVICES" | jq -R . | jq -s -c .)
+
+            echo "services=$JSON" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo 'services=[]' >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+
+  # ============================================================
+  # STAGE 1 : TEST
+  # Pytest + SonarQube
+  # ============================================================
+
+  test:
+    name: Test - ${{ matrix.service }}
+    needs: changes
+
+    if: needs.changes.outputs.has_changes == 'true'
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.changes.outputs.services) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run tests for impacted service
+        run: |
+          TEST_DIR="backend/${{ matrix.service }}/tests"
+          SOURCE_DIR="backend/${{ matrix.service }}"
+
+          if [ ! -d "$TEST_DIR" ]; then
+            echo "Aucun dossier de tests trouvé pour ${{ matrix.service }}"
+            exit 1
+          fi
+
+          python -m pytest "$TEST_DIR" \
+            --cov="$SOURCE_DIR" \
+            --cov-report=xml:"$SOURCE_DIR/coverage.xml" \
+            --cov-report=term-missing \
+            --cov-fail-under=80
+
+
+
+  # ============================================================
+  # STAGE 2 : BUILD
+  # Construction des images uniquement pour les services impactés
+  # ============================================================
+
+  build:
+    name: Build - ${{ matrix.service }}
+
+    needs:
+      - changes
+      - test
+
+    if: needs.changes.outputs.has_changes == 'true'
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.changes.outputs.services) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+
+      - name: Save Docker image
+        run: |
+          docker save \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}" \
+            -o "${{ matrix.service }}.tar"
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: docker-image-${{ matrix.service }}
+          path: ${{ matrix.service }}.tar
+          retention-days: 1
+
+
+  # ============================================================
+  # STAGE 3 : SCAN
+  # Trivy
+  # ============================================================
+
+  scan:
+    name: Security scan - ${{ matrix.service }}
+
+    needs:
+      - changes
+      - build
+
+    if: needs.changes.outputs.has_changes == 'true'
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.changes.outputs.services) }}
+
+    steps:
+      - name: Download Docker image
+        uses: actions/download-artifact@v7.0.0
+        with:
+          name: docker-image-${{ matrix.service }}
+
+      - name: Load Docker image
+        run: |
+          docker load -i "${{ matrix.service }}.tar"
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}'
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+
+  # ============================================================
+  # STAGE 4 : PUBLISH
+  # Publication dans le registre
+  # ============================================================
+
+  publish:
+    name: Publish - ${{ matrix.service }}
+
+    needs:
+      - changes
+      - scan
+
+    # Pas de publication pendant une Pull Request
+    if: >
+      needs.changes.outputs.has_changes == 'true' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/develop'
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.changes.outputs.services) }}
+
+    steps:
+      - name: Download Docker image
+        uses: actions/download-artifact@v7
+        with:
+          name: docker-image-${{ matrix.service }}
+
+      - name: Load Docker image
+        run: |
+          docker load -i "${{ matrix.service }}.tar"
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker image
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}"
+
+          docker push "$IMAGE:${{ github.sha }}"
+
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          fi
+  # ============================================================
+  # STAGE 5 : DEPLOY
+  # ============================================================
+
+  deploy:
+    name: Deploy
+
+    needs:
+      - changes
+      - publish
+
+    if: >
+      needs.changes.outputs.has_changes == 'true' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/develop'
+
+    runs-on:
+      - self-hosted
+      - linux
+
+    environment:
+      name: production
+
+    steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy impacted services
+        env:
+          SERVICES: ${{ needs.changes.outputs.services }}
+        run: |
+          set -euo pipefail
+
+          echo "$SERVICES" | jq -r '.[]' | while read -r service; do
+
+            echo "Deploying $service..."
+
+            SERVICE="$service" \
+            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/$service:${{ github.sha }}" \
+            /opt/enervisionG3/deploy.sh
+
+          done
+
+  # ============================================================
+  # STAGE 6 : DAST
+  # OWASP ZAP
+  # ============================================================
+
+  dast:
+    name: DAST
+
+    needs:
+      - changes
+      - deploy
+
+    if: >
+      needs.changes.outputs.has_changes == 'true' &&
+      github.event_name == 'push' 
+
+    runs-on:
+      - self-hosted
+      - linux
+
+    steps:
+      - name: Debug DAST URL
+        run: |
+          echo "DAST_URL=${{ secrets.DAST_URL }}"
+
+      - name: Check application availability
+        run: |
+          curl -fk "${{ secrets.DAST_URL }}/health"
+
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: ${{ secrets.DAST_URL }}
+          allow_issue_writing: false
