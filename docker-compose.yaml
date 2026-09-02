@@ -13,6 +13,8 @@ services:
       - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
       - ./certs:/certs:ro
   backend:
+    networks:
+      - enervision_network
     build:
       context: .
       dockerfile: Dockerfile
@@ -23,7 +25,11 @@ services:
     volumes:
       - ./backend:/backend/backend
 
-    command: uvicorn backend.main:backend --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER}
+      POSTGRES_APP_PWD: ${POSTGRES_APP_PWD}
 
 secrets:
   db_password:
@@ -31,3 +37,7 @@ secrets:
 
   keycloak_client_secret:
     file: ./secrets/keycloak_client_secret
+
+networks:
+  enervision_network:
+    external: true
