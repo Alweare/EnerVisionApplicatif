@@ -55,3 +55,24 @@ class Alert(BaseModel):
     message: str
     value: float
     threshold: float
+
+
+class SiteStat(BaseModel):
+    site_id: str = Field(examples=["SITE001"])
+    site_name: str = Field(examples=["Bureau Paris La Défense"])
+    current_consumption_kw: float | None
+    capacity_kw: int
+    load_percent: float | None
+    data_quality: DataQuality
+
+
+class StatsSummary(BaseModel):
+    timestamp: datetime
+    total_sites: int
+    total_consumption_kw: float
+    total_capacity_kw: int
+    average_load_percent: float
+    has_incomplete_data: bool = Field(
+        description="True si au moins un site a un data_quality 'critical'"
+    )
+    sites: list[SiteStat]

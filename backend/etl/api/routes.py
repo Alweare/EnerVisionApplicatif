@@ -8,12 +8,20 @@ from backend.etl.repository import (
     get_current_reading,
     get_history,
     get_sensors_status,
+    get_stats_summary,
 )
-from backend.etl.schemas import Alert, AlertSeverity, EnergyReading, SiteSensorsStatus
+from backend.etl.schemas import (
+    Alert,
+    AlertSeverity,
+    EnergyReading,
+    SiteSensorsStatus,
+    StatsSummary,
+)
 
 router = APIRouter(prefix="/api/v1/sites", tags=["ETL"])
 sensors_router = APIRouter(prefix="/api/v1/sensors", tags=["ETL"])
 alerts_router = APIRouter(prefix="/api/v1/alerts", tags=["ETL"])
+stats_router = APIRouter(prefix="/api/v1/stats", tags=["ETL"])
 
 
 @router.get(
@@ -111,3 +119,20 @@ async def get_alerts_route(
     severity: AlertSeverity | None = Query(default=None, description="Filtrer par sévérité"),
 ) -> list[Alert]:
     return get_alerts(site_id=site_id, severity=severity)
+
+
+@stats_router.get(
+    "/summary",
+    response_model=StatsSummary,
+    summary="Résumé agrégé du parc de sites",
+    description=(
+        "Retourne les agrégats du parc (consommation totale, capacité totale, "
+        "taux de charge moyen) à partir de la dernière lecture connue de "
+        "chaque site. Les sites dont `current_consumption_kw` est `null` sont "
+        "exclus de `total_consumption_kw` et de `average_load_percent`. "
+        "`has_incomplete_data` passe à `true` dès qu'un site est en "
+        "`data_quality` `critical`."
+    ),
+)
+async def get_stats_summary_route() -> StatsSummary:
+    return get_stats_summary()

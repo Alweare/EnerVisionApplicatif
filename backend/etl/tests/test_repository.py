@@ -5,6 +5,7 @@ from backend.etl.repository import (
     get_current_reading,
     get_history,
     get_sensors_status,
+    get_stats_summary,
 )
 from backend.etl.schemas import Alert, EnergyReading, SiteSensorsStatus
 
@@ -137,3 +138,35 @@ def test_get_sensors_status_critical_reflects_network_loss():
 
     assert status.overall == "critical"
     assert status.sensors.network.status == "failing"
+
+
+def test_get_stats_summary_excludes_null_consumption_sites_from_total():
+    summary = get_stats_summary()
+
+    # SITE003 est "critical" (consumption_kw=None) : exclu du total, mais
+    # comptabilisé dans total_sites/total_capacity_kw.
+    assert summary.total_sites == 3
+    assert summary.total_capacity_kw == 2000
+    assert summary.total_consumption_kw == 629.44
+
+
+def test_get_stats_summary_average_load_percent_is_ratio_of_totals():
+    summary = get_stats_summary()
+
+    assert summary.average_load_percent == 31.5
+
+
+def test_get_stats_summary_flags_incomplete_data_when_a_site_is_critical():
+    summary = get_stats_summary()
+
+    assert summary.has_incomplete_data is True
+
+
+def test_get_stats_summary_per_site_load_percent_and_null_handling():
+    summary = get_stats_summary()
+    by_id = {site.site_id: site for site in summary.sites}
+
+    assert by_id["SITE001"].load_percent == 43.7
+    assert by_id["SITE003"].current_consumption_kw is None
+    assert by_id["SITE003"].load_percent is None
+    assert by_id["SITE003"].data_quality == "critical"

@@ -211,3 +211,30 @@ def test_get_alerts_returns_422_when_severity_invalid():
     response = client.get("/api/v1/alerts", params={"severity": "not-a-severity"})
 
     assert response.status_code == 422
+
+
+def test_get_stats_summary_returns_200_with_expected_totals():
+    response = client.get("/api/v1/stats/summary")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_sites"] == 3
+    assert body["total_capacity_kw"] == 2000
+    assert body["total_consumption_kw"] == 629.44
+    assert body["average_load_percent"] == 31.5
+
+
+def test_get_stats_summary_flags_incomplete_data():
+    body = client.get("/api/v1/stats/summary").json()
+
+    assert body["has_incomplete_data"] is True
+
+
+def test_get_stats_summary_excludes_critical_site_from_load_percent():
+    body = client.get("/api/v1/stats/summary").json()
+    by_id = {site["site_id"]: site for site in body["sites"]}
+
+    assert by_id["SITE003"]["current_consumption_kw"] is None
+    assert by_id["SITE003"]["load_percent"] is None
+    assert by_id["SITE003"]["data_quality"] == "critical"
+    assert by_id["SITE001"]["load_percent"] == 43.7

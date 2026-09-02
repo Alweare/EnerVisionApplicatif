@@ -6,7 +6,10 @@ from backend.etl.schemas import (
     SensorsBlock,
     SensorState,
     SiteSensorsStatus,
+    SiteStat,
+    StatsSummary,
 )
+from backend.sites.repository import list_sites
 
 # Mock en mémoire en attendant le branchement sur la Mock API / la base de
 # données via l'ETL. Une seule lecture "courante" par site, choisie pour
@@ -232,6 +235,61 @@ def get_alerts(site_id: str | None = None, severity: str | None = None) -> list[
     ]
 
 
+# Résumé du parc : seul endroit du module à dépendre de backend.sites, car il
+# doit croiser les métadonnées statiques des sites (nom, capacité) avec leurs
+# lectures courantes — contrairement à get_current_reading/get_sensors_status
+# qui restent volontairement autonomes.
+def get_stats_summary() -> StatsSummary:
+    site_stats: list[SiteStat] = []
+    total_consumption_kw = 0.0
+    total_capacity_kw = 0
+    has_incomplete_data = False
+
+    for site in list_sites():
+        reading = get_current_reading(site.site_id)
+        consumption_kw = reading.consumption_kw if reading else None
+        data_quality = reading.data_quality if reading else "critical"
+
+        load_percent = (
+            round(consumption_kw / site.capacity_kw * 100, 1)
+            if consumption_kw is not None
+            else None
+        )
+
+        if consumption_kw is not None:
+            total_consumption_kw += consumption_kw
+        total_capacity_kw += site.capacity_kw
+        if data_quality == "critical":
+            has_incomplete_data = True
+
+        site_stats.append(
+            SiteStat(
+                site_id=site.site_id,
+                site_name=site.site_name,
+                current_consumption_kw=consumption_kw,
+                capacity_kw=site.capacity_kw,
+                load_percent=load_percent,
+                data_quality=data_quality,
+            )
+        )
+
+    average_load_percent = (
+        round(total_consumption_kw / total_capacity_kw * 100, 1)
+        if total_capacity_kw
+        else 0.0
+    )
+
+    return StatsSummary(
+        timestamp=datetime.now(),
+        total_sites=len(site_stats),
+        total_consumption_kw=round(total_consumption_kw, 2),
+        total_capacity_kw=total_capacity_kw,
+        average_load_percent=average_load_percent,
+        has_incomplete_data=has_incomplete_data,
+        sites=site_stats,
+    )
+
+
 # --- Pour plus tard : proxy vers la Mock API distante ---
 # import httpx
 # from backend.core.config import settings
@@ -272,3 +330,9 @@ def get_alerts(site_id: str | None = None, severity: str | None = None) -> list[
 #         response = await client.get("/api/v1/alerts", params=params)
 #         response.raise_for_status()
 #         return [Alert(**item) for item in response.json()]
+#
+# async def get_stats_summary() -> StatsSummary:
+#     async with httpx.AsyncClient(base_url=settings.mock_api_url) as client:
+#         response = await client.get("/api/v1/stats/summary")
+#         response.raise_for_status()
+#         return StatsSummary(**response.json())
