@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 DataQuality = Literal["good", "partial", "degraded", "critical"]
 SensorStatusValue = Literal["ok", "failing"]
 OverallStatus = Literal["ok", "degraded", "critical"]
+AlertSeverity = Literal["low", "medium", "high", "critical"]
+AlertType = Literal["spike", "threshold", "anomaly", "outage", "sensor"]
 
 
 class EnergyReading(BaseModel):
@@ -42,3 +44,14 @@ class SiteSensorsStatus(BaseModel):
     site_name: str = Field(examples=["Bureau Paris La Défense"])
     sensors: SensorsBlock
     overall: OverallStatus
+
+
+class Alert(BaseModel):
+    alert_id: str = Field(examples=["ALR-SITE002-1718458320"])
+    timestamp: datetime
+    site_id: str = Field(examples=["SITE002"])
+    severity: AlertSeverity
+    type: AlertType
+    message: str
+    value: float
+    threshold: float

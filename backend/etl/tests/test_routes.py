@@ -162,3 +162,52 @@ def test_get_sensors_status_exposes_degraded_and_critical_overalls():
     assert body["SITE002"]["sensors"]["temperature"]["status"] == "failing"
     assert body["SITE003"]["overall"] == "critical"
     assert body["SITE003"]["sensors"]["network"]["status"] == "failing"
+
+
+def test_get_alerts_returns_200_with_all_alerts_without_filters():
+    response = client.get("/api/v1/alerts")
+
+    assert response.status_code == 200
+    assert len(response.json()) == 4
+
+
+def test_get_alerts_filters_by_site_id():
+    response = client.get("/api/v1/alerts", params={"site_id": "SITE002"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert all(alert["site_id"] == "SITE002" for alert in body)
+
+
+def test_get_alerts_filters_by_severity():
+    response = client.get("/api/v1/alerts", params={"severity": "critical"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["severity"] == "critical"
+
+
+def test_get_alerts_combines_site_id_and_severity_filters():
+    response = client.get(
+        "/api/v1/alerts", params={"site_id": "SITE002", "severity": "critical"}
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+def test_get_alerts_returns_200_with_empty_list_when_no_match():
+    response = client.get(
+        "/api/v1/alerts", params={"site_id": "SITE002", "severity": "low"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_get_alerts_returns_422_when_severity_invalid():
+    response = client.get("/api/v1/alerts", params={"severity": "not-a-severity"})
+
+    assert response.status_code == 422

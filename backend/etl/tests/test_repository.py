@@ -1,7 +1,12 @@
 from datetime import datetime, timedelta
 
-from backend.etl.repository import get_current_reading, get_history, get_sensors_status
-from backend.etl.schemas import EnergyReading, SiteSensorsStatus
+from backend.etl.repository import (
+    get_alerts,
+    get_current_reading,
+    get_history,
+    get_sensors_status,
+)
+from backend.etl.schemas import Alert, EnergyReading, SiteSensorsStatus
 
 
 def test_get_current_reading_returns_matching_reading():
@@ -86,6 +91,36 @@ def test_get_sensors_status_overall_ok_when_all_sensors_ok():
 
     assert status.overall == "ok"
     assert all(sensor.status == "ok" and sensor.failing_until is None for sensor in sensors)
+
+
+def test_get_alerts_returns_all_alerts_without_filters():
+    alerts = get_alerts()
+
+    assert len(alerts) == 4
+    assert all(isinstance(alert, Alert) for alert in alerts)
+
+
+def test_get_alerts_filters_by_site_id():
+    alerts = get_alerts(site_id="SITE002")
+
+    assert len(alerts) == 2
+    assert all(alert.site_id == "SITE002" for alert in alerts)
+
+
+def test_get_alerts_filters_by_severity():
+    alerts = get_alerts(severity="critical")
+
+    assert len(alerts) == 1
+    assert alerts[0].alert_id == "ALR-SITE002-1718458320"
+
+
+def test_get_alerts_combines_site_id_and_severity_filters():
+    assert get_alerts(site_id="SITE002", severity="critical") != []
+    assert get_alerts(site_id="SITE002", severity="low") == []
+
+
+def test_get_alerts_returns_empty_list_when_no_alert_matches():
+    assert get_alerts(site_id="UNKNOWN") == []
 
 
 def test_get_sensors_status_degraded_reflects_failing_sensor():

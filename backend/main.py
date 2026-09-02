@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from backend.etl.api.routes import alerts_router
 from backend.etl.api.routes import router as etl_router
 from backend.etl.api.routes import sensors_router
 from backend.health.api.routes import router as health_router
@@ -16,3 +17,4 @@ app.include_router(health_router)
 app.include_router(sites_router)
 app.include_router(etl_router)
 app.include_router(sensors_router)
+app.include_router(alerts_router)

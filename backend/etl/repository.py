@@ -1,6 +1,12 @@
 from datetime import datetime, timedelta
 
-from backend.etl.schemas import EnergyReading, SensorsBlock, SensorState, SiteSensorsStatus
+from backend.etl.schemas import (
+    Alert,
+    EnergyReading,
+    SensorsBlock,
+    SensorState,
+    SiteSensorsStatus,
+)
 
 # Mock en mémoire en attendant le branchement sur la Mock API / la base de
 # données via l'ETL. Une seule lecture "courante" par site, choisie pour
@@ -170,6 +176,62 @@ def get_sensors_status() -> dict[str, SiteSensorsStatus]:
     return _SENSORS_STATUS
 
 
+# Alertes : reprend l'exemple de la doc Mock API (ALR-SITE002-1718458320) et
+# ajoute 3 alertes plausibles sur d'autres sites/sévérités/types pour pouvoir
+# exercer le filtrage combiné site_id + severity.
+_ALERTS: list[Alert] = [
+    Alert(
+        alert_id="ALR-SITE001-1718458200",
+        timestamp=datetime.fromisoformat("2024-06-15T14:10:00"),
+        site_id="SITE001",
+        severity="low",
+        type="threshold",
+        message="Consommation légèrement au-dessus du seuil sur Bureau Paris La Défense",
+        value=95.0,
+        threshold=90.0,
+    ),
+    Alert(
+        alert_id="ALR-SITE002-1718458100",
+        timestamp=datetime.fromisoformat("2024-06-15T14:08:00"),
+        site_id="SITE002",
+        severity="medium",
+        type="spike",
+        message="Pic de consommation détecté sur Usine Lyon Vénissieux",
+        value=650.0,
+        threshold=600.0,
+    ),
+    Alert(
+        alert_id="ALR-SITE002-1718458320",
+        timestamp=datetime.fromisoformat("2024-06-15T14:12:00"),
+        site_id="SITE002",
+        severity="critical",
+        type="outage",
+        message="Risque de surcharge sur Usine Lyon Vénissieux",
+        value=812.5,
+        threshold=720.0,
+    ),
+    Alert(
+        alert_id="ALR-SITE003-1718458260",
+        timestamp=datetime.fromisoformat("2024-06-15T14:11:00"),
+        site_id="SITE003",
+        severity="high",
+        type="sensor",
+        message="Panne du capteur réseau sur Data Center Marseille",
+        value=0.0,
+        threshold=1.0,
+    ),
+]
+
+
+def get_alerts(site_id: str | None = None, severity: str | None = None) -> list[Alert]:
+    return [
+        alert
+        for alert in _ALERTS
+        if (site_id is None or alert.site_id == site_id)
+        and (severity is None or alert.severity == severity)
+    ]
+
+
 # --- Pour plus tard : proxy vers la Mock API distante ---
 # import httpx
 # from backend.core.config import settings
@@ -203,3 +265,10 @@ def get_sensors_status() -> dict[str, SiteSensorsStatus]:
 #             site_id: SiteSensorsStatus(**status)
 #             for site_id, status in response.json().items()
 #         }
+#
+# async def get_alerts(site_id: str | None = None, severity: str | None = None) -> list[Alert]:
+#     async with httpx.AsyncClient(base_url=settings.mock_api_url) as client:
+#         params = {k: v for k, v in {"site_id": site_id, "severity": severity}.items() if v}
+#         response = await client.get("/api/v1/alerts", params=params)
+#         response.raise_for_status()
+#         return [Alert(**item) for item in response.json()]

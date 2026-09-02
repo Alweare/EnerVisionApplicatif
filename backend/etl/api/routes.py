@@ -3,11 +3,17 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.core.schemas import ErrorDetail
-from backend.etl.repository import get_current_reading, get_history, get_sensors_status
-from backend.etl.schemas import EnergyReading, SiteSensorsStatus
+from backend.etl.repository import (
+    get_alerts,
+    get_current_reading,
+    get_history,
+    get_sensors_status,
+)
+from backend.etl.schemas import Alert, AlertSeverity, EnergyReading, SiteSensorsStatus
 
 router = APIRouter(prefix="/api/v1/sites", tags=["ETL"])
 sensors_router = APIRouter(prefix="/api/v1/sensors", tags=["ETL"])
+alerts_router = APIRouter(prefix="/api/v1/alerts", tags=["ETL"])
 
 
 @router.get(
@@ -88,3 +94,20 @@ async def get_site_history(
 )
 async def get_sensors_status_route() -> dict[str, SiteSensorsStatus]:
     return get_sensors_status()
+
+
+@alerts_router.get(
+    "",
+    response_model=list[Alert],
+    summary="Liste les alertes de consommation actives",
+    description=(
+        "Retourne les alertes actives, avec filtrage optionnel et combinable "
+        "par `site_id` et `severity`. Renvoie une liste vide si aucune alerte "
+        "ne correspond aux filtres."
+    ),
+)
+async def get_alerts_route(
+    site_id: str | None = Query(default=None, description="Filtrer par site (ex : SITE001)"),
+    severity: AlertSeverity | None = Query(default=None, description="Filtrer par sévérité"),
+) -> list[Alert]:
+    return get_alerts(site_id=site_id, severity=severity)
