@@ -10,6 +10,17 @@ AlertSeverity = Literal["low", "medium", "high", "critical"]
 AlertType = Literal["spike", "threshold", "anomaly", "outage", "sensor"]
 
 
+class Site(BaseModel):
+    site_id: str = Field(examples=["SITE001"])
+    site_type: str = Field(examples=["office"])
+    site_name: str = Field(examples=["Bureau Paris La Défense"])
+    location: str = Field(examples=["Paris, France"])
+    # float, pas int : la vraie Mock API renvoie capacity_kw en 200.0 sur
+    # /api/v1/sites (bien que 200 sans décimale sur /api/v1/stats/summary).
+    capacity_kw: float = Field(examples=[200.0])
+    status: str = Field(examples=["active"])
+
+
 class EnergyReading(BaseModel):
     timestamp: datetime
     site_id: str = Field(examples=["SITE001"])
@@ -61,7 +72,7 @@ class SiteStat(BaseModel):
     site_id: str = Field(examples=["SITE001"])
     site_name: str = Field(examples=["Bureau Paris La Défense"])
     current_consumption_kw: float | None
-    capacity_kw: int
+    capacity_kw: float
     load_percent: float | None
     data_quality: DataQuality
 
@@ -70,9 +81,21 @@ class StatsSummary(BaseModel):
     timestamp: datetime
     total_sites: int
     total_consumption_kw: float
-    total_capacity_kw: int
+    total_capacity_kw: float
     average_load_percent: float
     has_incomplete_data: bool = Field(
-        description="True si au moins un site a un data_quality 'critical'"
+        description=(
+            "Ajouté par notre service : true si au moins un site a un "
+            "data_quality 'critical'. Absent de la réponse brute de la "
+            "vraie Mock API, calculé ici à partir de `sites`."
+        )
     )
     sites: list[SiteStat]
+
+
+class SimulateSpikeResult(BaseModel):
+    status: str = Field(examples=["simulated"])
+    site_id: str = Field(examples=["SITE002"])
+    event: str = Field(examples=["consumption_spike"])
+    duration_minutes: int = Field(examples=[60])
+    message: str

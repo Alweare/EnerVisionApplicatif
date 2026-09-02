@@ -12,18 +12,38 @@ services:
     volumes:
       - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
       - ./certs:/certs:ro
-  backend:
+  health:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: backend/health/Dockerfile
 
     ports:
       - "8000:8000"
 
     volumes:
-      - ./backend:/backend/backend
+      - ./backend/__init__.py:/backend/backend/__init__.py
+      - ./backend/core:/backend/backend/core
+      - ./backend/health:/backend/backend/health
 
-    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn backend.health.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker-ingestion:
+    build:
+      context: .
+      dockerfile: backend/workerIngestion/Dockerfile
+
+    ports:
+      - "8001:8000"
+
+    environment:
+      MOCK_API_URL: http://10.105.200.45:8000
+
+    volumes:
+      - ./backend/__init__.py:/backend/backend/__init__.py
+      - ./backend/core:/backend/backend/core
+      - ./backend/workerIngestion:/backend/backend/workerIngestion
+
+    command: uvicorn backend.workerIngestion.main:app --host 0.0.0.0 --port 8000 --reload
 
 secrets:
   db_password:
