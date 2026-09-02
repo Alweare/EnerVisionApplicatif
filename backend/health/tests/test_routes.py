@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from backend.health.main import app
+from backend.main import app
 
 client = TestClient(app)
 
