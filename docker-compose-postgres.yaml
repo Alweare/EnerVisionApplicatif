@@ -1,5 +1,7 @@
 services:
   postgres:
+    networks:
+      - enervision_network
     image: postgres:16-alpine
     container_name: postgres
     restart: always
@@ -36,3 +38,7 @@ services:
 
 volumes:
   postgresql_data:
+
+networks:
+  enervision_network:
+    external: true
