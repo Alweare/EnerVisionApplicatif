@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
-from backend.etl.repository import get_current_reading, get_history
-from backend.etl.schemas import EnergyReading
+from backend.etl.repository import get_current_reading, get_history, get_sensors_status
+from backend.etl.schemas import EnergyReading, SiteSensorsStatus
 
 
 def test_get_current_reading_returns_matching_reading():
@@ -65,3 +65,40 @@ def test_get_history_respects_limit_and_keeps_most_recent():
     assert timestamps == sorted(timestamps)
     assert timestamps[-1] == end
     assert timestamps[0] == end - timedelta(hours=2)
+
+
+def test_get_sensors_status_returns_all_known_sites():
+    status = get_sensors_status()
+
+    assert set(status.keys()) == {"SITE001", "SITE002", "SITE003"}
+    assert all(isinstance(value, SiteSensorsStatus) for value in status.values())
+
+
+def test_get_sensors_status_overall_ok_when_all_sensors_ok():
+    status = get_sensors_status()["SITE001"]
+    sensors = [
+        status.sensors.consumption,
+        status.sensors.electrical,
+        status.sensors.temperature,
+        status.sensors.humidity,
+        status.sensors.network,
+    ]
+
+    assert status.overall == "ok"
+    assert all(sensor.status == "ok" and sensor.failing_until is None for sensor in sensors)
+
+
+def test_get_sensors_status_degraded_reflects_failing_sensor():
+    status = get_sensors_status()["SITE002"]
+
+    assert status.overall == "degraded"
+    assert status.sensors.temperature.status == "failing"
+    assert status.sensors.temperature.failing_until is not None
+    assert status.sensors.network.status == "ok"
+
+
+def test_get_sensors_status_critical_reflects_network_loss():
+    status = get_sensors_status()["SITE003"]
+
+    assert status.overall == "critical"
+    assert status.sensors.network.status == "failing"

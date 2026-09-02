@@ -2,16 +2,25 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
 
-from backend.etl.repository import get_current_reading, get_history
-from backend.etl.schemas import EnergyReading
+from backend.core.schemas import ErrorDetail
+from backend.etl.repository import get_current_reading, get_history, get_sensors_status
+from backend.etl.schemas import EnergyReading, SiteSensorsStatus
 
 router = APIRouter(prefix="/api/v1/sites", tags=["ETL"])
+sensors_router = APIRouter(prefix="/api/v1/sensors", tags=["ETL"])
 
 
 @router.get(
     "/{site_id}/current",
     response_model=EnergyReading,
     summary="Dernière lecture connue d'un site",
+    description=(
+        "Retourne la dernière mesure connue d'un site (consommation, tension, "
+        "température...). Les champs de mesure peuvent être `null` en cas de "
+        "panne capteur ou de perte réseau : `data_quality` et `null_reasons` "
+        "indiquent alors la cause, sans que la lecture soit filtrée."
+    ),
+    responses={404: {"model": ErrorDetail, "description": "Site inexistant"}},
 )
 async def get_site_current_reading(site_id: str) -> EnergyReading:
     reading = get_current_reading(site_id)
@@ -24,6 +33,21 @@ async def get_site_current_reading(site_id: str) -> EnergyReading:
     "/{site_id}/history",
     response_model=list[EnergyReading],
     summary="Historique paginé des lectures d'un site",
+    description=(
+        "Retourne l'historique des lectures d'un site sur une période donnée, "
+        "triées par timestamp croissant. Par défaut, la période couvre les "
+        "dernières 24h et la réponse est limitée à 100 lectures."
+    ),
+    responses={
+        404: {"model": ErrorDetail, "description": "Site inexistant"},
+        422: {
+            "model": ErrorDetail,
+            "description": (
+                "Paramètre invalide : date au format non ISO 8601, `limit` "
+                "hors de la plage 1-1000, ou `start_time` postérieur à `end_time`"
+            ),
+        },
+    },
 )
 async def get_site_history(
     site_id: str,
@@ -48,3 +72,19 @@ async def get_site_history(
     if readings is None:
         raise HTTPException(status_code=404, detail=f"Site '{site_id}' introuvable")
     return readings
+
+
+@sensors_router.get(
+    "/status",
+    response_model=dict[str, SiteSensorsStatus],
+    summary="État de santé des capteurs par site",
+    description=(
+        "Retourne, pour chaque site connu, l'état de chaque capteur "
+        "(consumption/electrical/temperature/humidity/network, ok ou failing) "
+        "ainsi qu'un statut global `overall` : `ok` (tous capteurs opérationnels), "
+        "`degraded` (au moins un capteur en panne, données partielles) ou "
+        "`critical` (perte réseau, aucune donnée disponible)."
+    ),
+)
+async def get_sensors_status_route() -> dict[str, SiteSensorsStatus]:
+    return get_sensors_status()

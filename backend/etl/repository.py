@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from backend.etl.schemas import EnergyReading
+from backend.etl.schemas import EnergyReading, SensorsBlock, SensorState, SiteSensorsStatus
 
 # Mock en mémoire en attendant le branchement sur la Mock API / la base de
 # données via l'ETL. Une seule lecture "courante" par site, choisie pour
@@ -117,6 +117,59 @@ def get_history(
     return readings[-limit:]
 
 
+# État des capteurs : cohérent avec _CURRENT_READINGS ci-dessus (site_name
+# dupliqué depuis backend.sites.repository à dessein, pour ne pas coupler les
+# deux modules tant qu'ils restent des mocks indépendants) :
+# - SITE001 : tous capteurs ok -> overall "ok"
+# - SITE002 : capteur température en panne (données partielles) -> "degraded"
+# - SITE003 : capteur réseau en panne (aucune donnée) -> "critical"
+_SENSORS_STATUS: dict[str, SiteSensorsStatus] = {
+    "SITE001": SiteSensorsStatus(
+        site_name="Bureau Paris La Défense",
+        sensors=SensorsBlock(
+            consumption=SensorState(status="ok", failing_until=None),
+            electrical=SensorState(status="ok", failing_until=None),
+            temperature=SensorState(status="ok", failing_until=None),
+            humidity=SensorState(status="ok", failing_until=None),
+            network=SensorState(status="ok", failing_until=None),
+        ),
+        overall="ok",
+    ),
+    "SITE002": SiteSensorsStatus(
+        site_name="Usine Lyon Vénissieux",
+        sensors=SensorsBlock(
+            consumption=SensorState(status="ok", failing_until=None),
+            electrical=SensorState(status="ok", failing_until=None),
+            temperature=SensorState(
+                status="failing",
+                failing_until=datetime.fromisoformat("2024-06-15T14:33:05"),
+            ),
+            humidity=SensorState(status="ok", failing_until=None),
+            network=SensorState(status="ok", failing_until=None),
+        ),
+        overall="degraded",
+    ),
+    "SITE003": SiteSensorsStatus(
+        site_name="Data Center Marseille",
+        sensors=SensorsBlock(
+            consumption=SensorState(status="ok", failing_until=None),
+            electrical=SensorState(status="ok", failing_until=None),
+            temperature=SensorState(status="ok", failing_until=None),
+            humidity=SensorState(status="ok", failing_until=None),
+            network=SensorState(
+                status="failing",
+                failing_until=datetime.fromisoformat("2024-06-15T14:40:00"),
+            ),
+        ),
+        overall="critical",
+    ),
+}
+
+
+def get_sensors_status() -> dict[str, SiteSensorsStatus]:
+    return _SENSORS_STATUS
+
+
 # --- Pour plus tard : proxy vers la Mock API distante ---
 # import httpx
 # from backend.core.config import settings
@@ -141,3 +194,12 @@ def get_history(
 #             return None
 #         response.raise_for_status()
 #         return [EnergyReading(**item) for item in response.json()]
+#
+# async def get_sensors_status() -> dict[str, SiteSensorsStatus]:
+#     async with httpx.AsyncClient(base_url=settings.mock_api_url) as client:
+#         response = await client.get("/api/v1/sensors/status")
+#         response.raise_for_status()
+#         return {
+#             site_id: SiteSensorsStatus(**status)
+#             for site_id, status in response.json().items()
+#         }

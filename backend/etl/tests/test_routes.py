@@ -129,3 +129,36 @@ def test_get_history_default_window_returns_recent_readings_without_filters():
     assert isinstance(body, list)
     timestamps = [reading["timestamp"] for reading in body]
     assert timestamps == sorted(timestamps)
+
+
+def test_get_sensors_status_returns_200_with_all_sites_keyed_by_id():
+    response = client.get("/api/v1/sensors/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body.keys()) == {"SITE001", "SITE002", "SITE003"}
+
+
+def test_get_sensors_status_structure_matches_mock_api():
+    response = client.get("/api/v1/sensors/status")
+
+    site001 = response.json()["SITE001"]
+    assert site001["site_name"] == "Bureau Paris La Défense"
+    assert site001["overall"] == "ok"
+    assert set(site001["sensors"].keys()) == {
+        "consumption",
+        "electrical",
+        "temperature",
+        "humidity",
+        "network",
+    }
+    assert site001["sensors"]["consumption"] == {"status": "ok", "failing_until": None}
+
+
+def test_get_sensors_status_exposes_degraded_and_critical_overalls():
+    body = client.get("/api/v1/sensors/status").json()
+
+    assert body["SITE002"]["overall"] == "degraded"
+    assert body["SITE002"]["sensors"]["temperature"]["status"] == "failing"
+    assert body["SITE003"]["overall"] == "critical"
+    assert body["SITE003"]["sensors"]["network"]["status"] == "failing"
