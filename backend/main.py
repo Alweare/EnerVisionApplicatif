@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from backend.etl.api.routes import router as etl_router
 from backend.health.api.routes import router as health_router
 from backend.sites.api.routes import router as sites_router
 
@@ -11,3 +12,4 @@ app = FastAPI(
 #Déclarer les routes ici, dans chaque module faire un routes.py sur le modèle de health
 app.include_router(health_router)
 app.include_router(sites_router)
+app.include_router(etl_router)
