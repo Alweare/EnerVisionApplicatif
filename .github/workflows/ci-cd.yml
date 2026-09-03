@@ -113,7 +113,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0   # requis si SonarQube est branché sur ce job
 
@@ -259,7 +259,6 @@ jobs:
           format: table
           exit-code: "1"
           severity: CRITICAL,HIGH
-          ignore-unfixed: true
 
       # L'artefact n'est produit que si le scan a réussi ET qu'une publication suivra
       - name: Save Docker image
