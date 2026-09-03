@@ -30,6 +30,17 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_APP_USER: ${POSTGRES_APP_USER}
       POSTGRES_APP_PWD: ${POSTGRES_APP_PWD}
+  frontend:
+    build:
+      context: ./frontend
+    networks:
+      - enervision_network
+    ports:
+      - "8501:8501"
+    environment:
+      BACKEND_URL: http://backend:8000
+    volumes:
+      - ./frontend:/frontend
 
   worker-ingestion:
     build:
