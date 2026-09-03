@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from backend.workerIngestion import repository
+from workerIngestion import repository
 
 # Jeux de données figés, calqués sur la forme réelle de la Mock API
 # (vérifiée en direct sur http://10.105.200.45:8000) mais avec des valeurs

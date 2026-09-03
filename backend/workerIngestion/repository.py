@@ -2,7 +2,7 @@ import os
 
 import httpx
 
-from backend.workerIngestion.schemas import EnergyReading
+from workerIngestion.schemas import EnergyReading
 
 # URL fournie par le formateur (cf. EnerVision_Kickoff.pdf) — surchargeable
 # par variable d'env pour les autres cohortes/environnements.

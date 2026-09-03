@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.workerIngestion.main import app
+from workerIngestion.main import app
 
 client = TestClient(app)
 
