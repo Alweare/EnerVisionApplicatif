@@ -2,14 +2,22 @@ name: CI/CD
 
 on:
   push:
+    branches:
+      - main
+      - develop
   pull_request:
     branches:
       - main
       - develop
 
+# Principe du moindre privilège : packages:write est accordé uniquement au job publish
 permissions:
   contents: read
-  packages: write
+
+# Annule les runs obsolètes sur une PR (économie de minutes CI)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   REGISTRY: ghcr.io
@@ -24,103 +32,123 @@ jobs:
   changes:
     name: Detect impacted services
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+      pull-requests: read
 
     outputs:
-      services: ${{ steps.services.outputs.services }}
-      has_changes: ${{ steps.services.outputs.has_changes }}
+      # [{ "name": "authentication", "dir": "backend/authentication" }, ...]
+      services: ${{ steps.matrix.outputs.services }}
+      backend: ${{ steps.matrix.outputs.backend }}
+      frontend: ${{ steps.matrix.outputs.frontend }}
+      has_changes: ${{ steps.matrix.outputs.has_changes }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
+
+      - name: Detect changed services
+        id: filter
+        uses: dorny/paths-filter@v3
         with:
-          fetch-depth: 0
+          # Les clés sont les CHEMINS des services : elles servent directement
+          # de source de vérité pour le répertoire de travail et le Dockerfile.
+          # Les clés préfixées par "_" sont des ancres YAML, filtrées plus bas.
+          filters: |
+            _shared: &shared
+              - 'backend/requirements.txt'
+              - 'backend/core/**'
 
-      - name: Detect changed files
-        id: changed-files
-        uses: tj-actions/changed-files@v47
+            backend/authentication:
+              - *shared
+              - 'backend/authentication/**'
+            backend/consumption:
+              - *shared
+              - 'backend/consumption/**'
+            backend/etl:
+              - *shared
+              - 'backend/etl/**'
+            backend/prediction:
+              - *shared
+              - 'backend/prediction/**'
+            backend/recommendation:
+              - *shared
+              - 'backend/recommendation/**'
+            backend/health:
+              - *shared
+              - 'backend/health/**'
+            backend/core:
+              - 'backend/core/**'
+            backend/workerIngestion:
+              - *shared
+              - 'backend/workerIngestion/**'
+            frontend:
+              - 'frontend/**'
 
-      - name: Build impacted services matrix
-        id: services
-        shell: bash
+      - name: Build service matrix
+        id: matrix
+        env:
+          CHANGES: ${{ steps.filter.outputs.changes }}
         run: |
           set -euo pipefail
 
-          SERVICES=()
-          CHANGED_FILES="${{ steps.changed-files.outputs.all_changed_files }}"
+          SERVICES=$(jq -c '
+            [ .[]
+              | select(startswith("_") | not)
+              | { name: (split("/") | last), dir: . }
+            ]' <<< "$CHANGES")
 
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
+          BACKEND=$(jq -c '[ .[] | select(.dir | startswith("backend/")) ]' <<< "$SERVICES")
+          FRONTEND=$(jq -c '[ .[] | select(.dir | startswith("backend/") | not) ]' <<< "$SERVICES")
 
-          for file in $CHANGED_FILES; do
-            case "$file" in
-              backend/authentication/*)
-                SERVICES+=("authentication")
-                ;;
-              backend/consumption/*)
-                SERVICES+=("consumption")
-                ;;
-              backend/etl/*)
-                SERVICES+=("etl")
-                ;;
-              backend/prediction/*)
-                SERVICES+=("prediction")
-                ;;
-              backend/recommandation/*)
-                SERVICES+=("recommandation")
-                ;;
-              backend/health/*)
-                SERVICES+=("health")
-                ;;
-              backend/core/*)
-                SERVICES+=("core")
-                ;;
-              backend/workerIngestion/*)
-                SERVICES+=("workerIngestion")
-                ;;
-          
-            esac
-          done
-
-          if [ ${#SERVICES[@]} -gt 0 ]; then
-            UNIQUE_SERVICES=$(printf "%s\n" "${SERVICES[@]}" | sort -u)
-            JSON=$(printf "%s\n" "$UNIQUE_SERVICES" | jq -R . | jq -s -c .)
-
-            echo "services=$JSON" >> "$GITHUB_OUTPUT"
-            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          if [ "$SERVICES" = "[]" ]; then
+            HAS_CHANGES=false
           else
-            echo 'services=[]' >> "$GITHUB_OUTPUT"
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            HAS_CHANGES=true
           fi
 
+          {
+            echo "services=$SERVICES"
+            echo "backend=$BACKEND"
+            echo "frontend=$FRONTEND"
+            echo "has_changes=$HAS_CHANGES"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "### Services impactés" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.[] | "- \(.name) (`\(.dir)`)"' <<< "$SERVICES" >> "$GITHUB_STEP_SUMMARY"
+
 
   # ============================================================
-  # STAGE 1 : TEST
-  # Pytest + SonarQube
+  # STAGE 1a : TEST BACKEND (pytest)
   # ============================================================
 
-  test:
-    name: Test - ${{ matrix.service }}
+  test-backend:
+    name: Test - ${{ matrix.service.name }}
     needs: changes
-
-    if: needs.changes.outputs.has_changes == 'true'
+    if: needs.changes.outputs.backend != '[]'
 
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     strategy:
       fail-fast: false
       matrix:
-        service: ${{ fromJson(needs.changes.outputs.services) }}
+        service: ${{ fromJson(needs.changes.outputs.backend) }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0   # requis si SonarQube est branché sur ce job
 
       - name: Setup Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
         working-directory: backend
@@ -130,38 +158,99 @@ jobs:
           pip install pytest pytest-cov
 
       - name: Run tests for impacted service
+        env:
+          SERVICE_DIR: ${{ matrix.service.dir }}
         run: |
-          TEST_DIR="backend/${{ matrix.service }}/tests"
-          SOURCE_DIR="backend/${{ matrix.service }}"
+          set -euo pipefail
+
+          TEST_DIR="$SERVICE_DIR/tests"
 
           if [ ! -d "$TEST_DIR" ]; then
-            echo "Aucun dossier de tests trouvé pour ${{ matrix.service }}"
+            echo "::error::Aucun dossier de tests trouvé pour $SERVICE_DIR"
             exit 1
           fi
 
           python -m pytest "$TEST_DIR" \
-            --cov="$SOURCE_DIR" \
-            --cov-report=xml:"$SOURCE_DIR/coverage.xml" \
+            --cov="$SERVICE_DIR" \
+            --cov-report=xml:"$SERVICE_DIR/coverage.xml" \
             --cov-report=term-missing \
             --cov-fail-under=80
 
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.service.name }}
+          path: ${{ matrix.service.dir }}/coverage.xml
+          retention-days: 7
+          if-no-files-found: warn
 
 
   # ============================================================
-  # STAGE 2 : BUILD
-  # Construction des images uniquement pour les services impactés
+  # STAGE 1b : TEST FRONTEND (npm)
+  # ============================================================
+
+  test-frontend:
+    name: Test - ${{ matrix.service.name }}
+    needs: changes
+    if: needs.changes.outputs.frontend != '[]'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.changes.outputs.frontend) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ${{ matrix.service.dir }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service.dir }}
+        run: npm ci
+
+      - name: Lint
+        working-directory: ${{ matrix.service.dir }}
+        run: npm run lint --if-present
+
+      - name: Run tests
+        working-directory: ${{ matrix.service.dir }}
+        run: npm test -- --coverage
+
+
+  # ============================================================
+  # STAGE 2 : BUILD + SCAN
+  # Fusionnés : on scanne l'image encore chargée localement, ce qui
+  # évite un aller-retour save / upload / download / load par service.
   # ============================================================
 
   build:
-    name: Build - ${{ matrix.service }}
+    name: Build & scan - ${{ matrix.service.name }}
 
     needs:
       - changes
-      - test
+      - test-backend
+      - test-frontend
 
-    if: needs.changes.outputs.has_changes == 'true'
+    # test-backend ou test-frontend peuvent être "skipped" selon ce qui a changé :
+    # !cancelled() + contrôle explicite des résultats évite que build soit skippé.
+    if: >
+      !cancelled() &&
+      needs.changes.outputs.has_changes == 'true' &&
+      needs.test-backend.result != 'failure' &&
+      needs.test-frontend.result != 'failure'
 
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
@@ -170,94 +259,73 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
+          file: ${{ matrix.service.dir }}/Dockerfile
           load: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
 
+      - name: Scan image with Trivy
+        # Version pinnée : @master casse la pipeline sans prévenir.
+        # Idéalement pinner le SHA du commit correspondant au tag.
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      # L'artefact n'est produit que si le scan a réussi ET qu'une publication suivra
       - name: Save Docker image
+        if: github.event_name == 'push'
         run: |
+          set -euo pipefail
           docker save \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}" \
-            -o "${{ matrix.service }}.tar"
+            "${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}:${{ github.sha }}" \
+            | gzip > "${{ matrix.service.name }}.tar.gz"
 
       - name: Upload Docker image artifact
-        uses: actions/upload-artifact@v7.0.0
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
         with:
-          name: docker-image-${{ matrix.service }}
-          path: ${{ matrix.service }}.tar
+          name: docker-image-${{ matrix.service.name }}
+          path: ${{ matrix.service.name }}.tar.gz
           retention-days: 1
+          compression-level: 0
 
 
   # ============================================================
-  # STAGE 3 : SCAN
-  # Trivy
+  # STAGE 3 : PUBLISH
   # ============================================================
 
-  scan:
-    name: Security scan - ${{ matrix.service }}
+  publish:
+    name: Publish - ${{ matrix.service.name }}
 
     needs:
       - changes
       - build
 
-    if: needs.changes.outputs.has_changes == 'true'
-
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        service: ${{ fromJson(needs.changes.outputs.services) }}
-
-    steps:
-      - name: Download Docker image
-        uses: actions/download-artifact@v7.0.0
-        with:
-          name: docker-image-${{ matrix.service }}
-
-      - name: Load Docker image
-        run: |
-          docker load -i "${{ matrix.service }}.tar"
-
-      - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: '${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}'
-          format: table
-          exit-code: 1
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-
-
-  # ============================================================
-  # STAGE 4 : PUBLISH
-  # Publication dans le registre
-  # ============================================================
-
-  publish:
-    name: Publish - ${{ matrix.service }}
-
-    needs:
-      - changes
-      - scan
-
-    # Pas de publication pendant une Pull Request
     if: >
       needs.changes.outputs.has_changes == 'true' &&
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/develop'
+      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
 
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      packages: write
 
     strategy:
       fail-fast: false
@@ -266,16 +334,17 @@ jobs:
 
     steps:
       - name: Download Docker image
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
-          name: docker-image-${{ matrix.service }}
+          name: docker-image-${{ matrix.service.name }}
 
       - name: Load Docker image
         run: |
-          docker load -i "${{ matrix.service }}.tar"
+          set -euo pipefail
+          gunzip -c "${{ matrix.service.name }}.tar.gz" | docker load
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -283,20 +352,29 @@ jobs:
 
       - name: Push Docker image
         run: |
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service }}"
+          set -euo pipefail
+
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}"
 
           docker push "$IMAGE:${{ github.sha }}"
 
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
-            docker push "$IMAGE:latest"
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            MOVING_TAG="latest"
+          else
+            MOVING_TAG="develop"
           fi
+
+          docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:$MOVING_TAG"
+          docker push "$IMAGE:$MOVING_TAG"
+
+
   # ============================================================
-  # STAGE 5 : DEPLOY
+  # STAGE 4 : DEPLOY
+  # develop -> staging | main -> production
   # ============================================================
 
   deploy:
-    name: Deploy
+    name: Deploy - ${{ github.ref_name }}
 
     needs:
       - changes
@@ -305,18 +383,24 @@ jobs:
     if: >
       needs.changes.outputs.has_changes == 'true' &&
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/develop'
+      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
 
     runs-on:
       - self-hosted
       - linux
 
+    timeout-minutes: 30
+
     environment:
-      name: production
+      name: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -325,21 +409,25 @@ jobs:
       - name: Deploy impacted services
         env:
           SERVICES: ${{ needs.changes.outputs.services }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
+          GIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
-          echo "$SERVICES" | jq -r '.[]' | while read -r service; do
+          while read -r name dir; do
+            echo "Deploying $name ($dir)..."
 
-            echo "Deploying $service..."
-
-            SERVICE="$service" \
-            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/$service:${{ github.sha }}" \
+            SERVICE="$name" \
+            SERVICE_DIR="$dir" \
+            IMAGE="$REGISTRY/$IMAGE_PREFIX/$name:$GIT_SHA" \
             /opt/enervisionG3/deploy.sh
 
-          done
+          done < <(jq -r '.[] | "\(.name) \(.dir)"' <<< "$SERVICES")
+
 
   # ============================================================
-  # STAGE 6 : DAST
+  # STAGE 5 : DAST
   # OWASP ZAP
   # ============================================================
 
@@ -352,20 +440,25 @@ jobs:
 
     if: >
       needs.changes.outputs.has_changes == 'true' &&
-      github.event_name == 'push' 
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
 
     runs-on:
       - self-hosted
       - linux
 
-    steps:
-      - name: Debug DAST URL
-        run: |
-          echo "DAST_URL=${{ secrets.DAST_URL }}"
+    timeout-minutes: 30
 
+    steps:
+      # L'URL est un secret : on ne l'affiche jamais dans les logs.
+      # Pour du debug, utiliser un output masqué : echo "::add-mask::$URL"
       - name: Check application availability
+        env:
+          DAST_URL: ${{ secrets.DAST_URL }}
         run: |
-          curl -fk "${{ secrets.DAST_URL }}/health"
+          set -euo pipefail
+          curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "$DAST_URL/health" > /dev/null
+          echo "Application disponible."
 
       - name: OWASP ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.14.0
