@@ -2,9 +2,6 @@ name: CI/CD
 
 on:
   push:
-    branches:
-      - main
-      - develop
   pull_request:
     branches:
       - main
@@ -53,39 +50,16 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v3
         with:
-          # Les clés sont les CHEMINS des services : elles servent directement
-          # de source de vérité pour le répertoire de travail et le Dockerfile.
-          # Les clés préfixées par "_" sont des ancres YAML, filtrées plus bas.
           filters: |
-            _shared: &shared
-              - 'backend/requirements.txt'
-              - 'backend/core/**'
-
-            backend/authentication:
-              - *shared
-              - 'backend/authentication/**'
-            backend/consumption:
-              - *shared
-              - 'backend/consumption/**'
-            backend/etl:
-              - *shared
-              - 'backend/etl/**'
-            backend/prediction:
-              - *shared
-              - 'backend/prediction/**'
-            backend/recommendation:
-              - *shared
-              - 'backend/recommendation/**'
-            backend/health:
-              - *shared
-              - 'backend/health/**'
-            backend/core:
-              - 'backend/core/**'
-            backend/workerIngestion:
-              - *shared
-              - 'backend/workerIngestion/**'
-            frontend:
-              - 'frontend/**'
+            backend/authentication: 'backend/authentication/**'
+            backend/consumption:    'backend/consumption/**'
+            backend/etl:            'backend/etl/**'
+            backend/prediction:     'backend/prediction/**'
+            backend/recommandation: 'backend/recommandation/**'
+            backend/health:         'backend/health/**'
+            backend/core:           'backend/core/**'
+            backend/workerIngestion:'backend/workerIngestion/**'
+            frontend:               'frontend/**'
 
       - name: Build service matrix
         id: matrix
