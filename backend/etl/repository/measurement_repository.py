@@ -11,3 +11,11 @@ class MeasurementRepository:
         self.db.commit()
         self.db.refresh(measurement)
         return measurement
+
+    def get_last_measurement(self, site_id: str) -> "Measurement | None":
+        return (
+            self.db.query(Measurement)
+            .filter(Measurement.site_id == site_id)
+            .order_by(Measurement.measurement_date.desc())
+            .first()
+        )

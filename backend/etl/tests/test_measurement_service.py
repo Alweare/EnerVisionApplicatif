@@ -29,7 +29,8 @@ def test_save_measurement_calls_repository_correctly():
         "data_quality": "good",
     }
 
-    service.save_measurement("SITE_TEST", cleaned)
+    measurement = service.build_measurement("SITE_TEST", cleaned)
+    service.save_measurement(measurement)
 
     mock_repository.save.assert_called_once()
     saved_measurement = mock_repository.save.call_args[0][0]
