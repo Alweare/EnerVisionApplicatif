@@ -25,11 +25,29 @@ services:
     volumes:
       - ./backend:/backend
 
-    command: uvicorn backend.main:backend --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_APP_USER: ${POSTGRES_APP_USER}
       POSTGRES_APP_PWD: ${POSTGRES_APP_PWD}
+
+  worker-ingestion:
+    build:
+      context: .
+      dockerfile: backend/workerIngestion/Dockerfile
+
+    ports:
+      - "8001:8000"
+
+    environment:
+      MOCK_API_URL: http://10.105.200.45:8000
+
+    volumes:
+      - ./backend/__init__.py:/backend/backend/__init__.py
+      - ./backend/core:/backend/backend/core
+      - ./backend/workerIngestion:/backend/backend/workerIngestion
+
+    command: uvicorn backend.workerIngestion.main:app --host 0.0.0.0 --port 8000 --reload
 
 secrets:
   db_password:
