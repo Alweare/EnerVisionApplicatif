@@ -144,6 +144,8 @@ jobs:
             exit 1
           fi
 
+          export PYTHONPATH="$PWD/$SERVICE_DIR:$PWD/backend:${PYTHONPATH:-}"
+
           python -m pytest "$TEST_DIR" \
             --cov="$SERVICE_DIR" \
             --cov-report=xml:"$SERVICE_DIR/coverage.xml" \
