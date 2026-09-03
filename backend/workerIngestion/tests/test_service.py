@@ -1,6 +1,6 @@
 import pytest
 
-from backend.workerIngestion import service
+from workerIngestion import service
 
 
 async def test_get_current_reading_returns_reading(mock_httpx):
