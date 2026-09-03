@@ -21,6 +21,8 @@ services:
       start_period: 30s
 
   migration:
+    networks:
+      - enervision_network
     container_name: migration
     build: db
     depends_on:

@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from backend.health.api.routes import router as health_router
+from backend.sites.api.routes import router as sites_router
 
 app = FastAPI(
     title="EnerVision API",
