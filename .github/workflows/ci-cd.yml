@@ -52,14 +52,14 @@ jobs:
         with:
           filters: |
             backend/authentication: 'backend/authentication/**'
-            backend/consumption:    'backend/consumption/**'
-            backend/etl:            'backend/etl/**'
-            backend/prediction:     'backend/prediction/**'
+            backend/consumption: 'backend/consumption/**'
+            backend/etl: 'backend/etl/**'
+            backend/prediction: 'backend/prediction/**'
             backend/recommandation: 'backend/recommandation/**'
-            backend/health:         'backend/health/**'
-            backend/core:           'backend/core/**'
-            backend/workerIngestion:'backend/workerIngestion/**'
-            frontend:               'frontend/**'
+            backend/health: 'backend/health/**'
+            backend/core: 'backend/core/**'
+            backend/workerIngestion: 'backend/workerIngestion/**'
+            frontend: 'frontend/**'
 
       - name: Build service matrix
         id: matrix
