@@ -47,18 +47,17 @@ services:
       context: .
       dockerfile: backend/workerIngestion/Dockerfile
 
-    ports:
-      - "8001:8000"
-
     environment:
       MOCK_API_URL: http://10.105.200.45:8000
+      AZURE_STORAGE_ACCOUNT: ${AZURE_STORAGE_ACCOUNT}
+      AZURE_STORAGE_CONTAINER_NAME: ${AZURE_STORAGE_CONTAINER_NAME}
+      AZURE_SAS_INGESTION: ${AZURE_SAS_INGESTION}
 
     volumes:
-      - ./backend/__init__.py:/backend/__init__.py
       - ./backend/core:/backend/core
       - ./backend/workerIngestion:/backend/workerIngestion
 
-    command: uvicorn workerIngestion.main:app --host 0.0.0.0 --port 8000 --reload
+    command: python -m workerIngestion.main
 
 secrets:
   db_password:
