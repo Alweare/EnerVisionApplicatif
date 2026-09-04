@@ -2,7 +2,7 @@ import logging
 
 from azure.core.exceptions import ResourceExistsError
 
-from workerIngestion.api import blob_storage
+from workeringestion.api import blob_storage
 
 
 async def test_archive_raw_uploads_and_returns_the_blob_name(mock_blob):
@@ -21,7 +21,7 @@ async def test_archive_raw_logs_a_warning_and_does_not_raise_on_name_collision(
 
     monkeypatch.setattr(blob_storage._container_client, "upload_blob", fake_upload_blob)
 
-    with caplog.at_level(logging.WARNING, logger="workerIngestion.api.blob_storage"):
+    with caplog.at_level(logging.WARNING, logger="workeringestion.api.blob_storage"):
         blob_name = await blob_storage.archive_raw('{"site_id": "SITE001"}')
 
     assert blob_name.startswith("brute_data/")

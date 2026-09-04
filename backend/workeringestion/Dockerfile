@@ -7,6 +7,6 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/core/ ./core/
-COPY backend/workerIngestion/ ./workerIngestion/
+COPY backend/workeringestion/ ./workeringestion/
 
-CMD ["python", "-m", "workerIngestion.main"]
+CMD ["python", "-m", "workeringestion.main"]

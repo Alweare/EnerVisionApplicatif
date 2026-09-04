@@ -1,4 +1,4 @@
-from workerIngestion.api import mock_api
+from workeringestion.api import mock_api
 
 
 async def test_get_current_reading_raw_returns_matching_reading(mock_httpx):

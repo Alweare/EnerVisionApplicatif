@@ -1,8 +1,8 @@
 import asyncio
 import logging
 
-from workerIngestion.api import blob_storage, mock_api
-from workerIngestion.services.poller import poll_loop
+from workeringestion.api import blob_storage, mock_api
+from workeringestion.services.poller import poll_loop
 
 # Aucun serveur ici (pas de uvicorn) : sans ceci, les logs du polling
 # n'apparaîtraient nulle part, y compris dans `docker compose logs`.

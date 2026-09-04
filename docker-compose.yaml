@@ -1,17 +1,17 @@
 services:
-  traefik:
-    image: traefik:v3.7
-    container_name: traefik
-    cap_add:
-      - NET_BIND_SERVICE
-    command:
-      - --entrypoints.websecure.address=:443
-      - --providers.file.filename=/etc/traefik/dynamic.yml
-    ports:
-      - 443:443
-    volumes:
-      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
-      - ./certs:/certs:ro
+  # traefik:
+  #   image: traefik:v3.7
+  #   container_name: traefik
+  #   cap_add:
+  #     - NET_BIND_SERVICE
+  #   command:
+  #     - --entrypoints.websecure.address=:443
+  #     - --providers.file.filename=/etc/traefik/dynamic.yml
+  #   ports:
+  #     - 443:443
+  #   volumes:
+  #     - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+  #     - ./certs:/certs:ro
   backend:
     networks:
       - enervision_network
@@ -45,7 +45,7 @@ services:
   worker-ingestion:
     build:
       context: .
-      dockerfile: backend/workerIngestion/Dockerfile
+      dockerfile: backend/workeringestion/Dockerfile
 
     environment:
       MOCK_API_URL: http://10.105.200.45:8000
@@ -55,9 +55,9 @@ services:
 
     volumes:
       - ./backend/core:/backend/core
-      - ./backend/workerIngestion:/backend/workerIngestion
+      - ./backend/workeringestion:/backend/workeringestion
 
-    command: python -m workerIngestion.main
+    command: python -m workeringestion.main
 
 secrets:
   db_password:

@@ -1,11 +1,11 @@
 import httpx
 import pytest
 
-from workerIngestion.api import blob_storage, mock_api
+from workeringestion.api import blob_storage, mock_api
 
 # Jeux de données figés, calqués sur la forme réelle de la Mock API
 # (vérifiée en direct sur http://10.105.200.45:8000) mais avec des valeurs
-# fixes pour des assertions déterministes en test.
+# fixes pour des assertions déterministes en tests.
 
 SITES_JSON = [
     {"site_id": "SITE001", "site_type": "office", "site_name": "Bureau Paris La Défense",
@@ -82,7 +82,7 @@ def mock_httpx(monkeypatch):
                 return fake_response(404, {"detail": f"Site {site_id} non trouvé"})
             return fake_response(200, reading)
 
-        raise AssertionError(f"URL non mockée dans ce test : {url}")
+        raise AssertionError(f"URL non mockée dans ce tests : {url}")
 
     monkeypatch.setattr(mock_api._client, "get", fake_get)
 

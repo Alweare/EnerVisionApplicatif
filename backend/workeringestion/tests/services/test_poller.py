@@ -1,7 +1,7 @@
 import json
 import logging
 
-from workerIngestion.services import poller
+from workeringestion.services import poller
 
 
 async def test_poll_once_archives_raw_json_before_any_parsing(mock_httpx, mock_blob):
@@ -28,7 +28,7 @@ async def test_poll_once_preserves_null_fields_in_the_archived_payload(mock_http
 
 
 async def test_poll_once_logs_the_reading_for_a_known_site(mock_httpx, mock_blob, caplog):
-    with caplog.at_level(logging.INFO, logger="workerIngestion.services.poller"):
+    with caplog.at_level(logging.INFO, logger="workeringestion.services.poller"):
         await poller.poll_once("SITE001")
 
     assert any("SITE001" in record.message for record in caplog.records)
@@ -43,7 +43,7 @@ async def test_poll_once_does_not_archive_when_site_unknown(mock_httpx, mock_blo
 async def test_poll_once_logs_a_warning_and_does_not_raise_when_site_unknown(
     mock_httpx, mock_blob, caplog
 ):
-    with caplog.at_level(logging.WARNING, logger="workerIngestion.services.poller"):
+    with caplog.at_level(logging.WARNING, logger="workeringestion.services.poller"):
         await poller.poll_once("UNKNOWN")
 
     assert any(

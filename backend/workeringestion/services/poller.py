@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 
-from workerIngestion.api import blob_storage, mock_api
+from workeringestion.api import blob_storage, mock_api
 
 logger = logging.getLogger(__name__)
 

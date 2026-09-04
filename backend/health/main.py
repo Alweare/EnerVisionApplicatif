@@ -1,8 +1,6 @@
 from fastapi import FastAPI
 
-from core.api.controller.measurement import router as measurement_router
-from core.api.controller.site import router as site_router
-from health.api.routes import router as health_router
+from backend.health.api.routes import router as health_router
 
 app = FastAPI(
     title="EnerVision API",
@@ -12,5 +10,3 @@ app = FastAPI(
 
 #Déclarer les routes ici, dans chaque module faire un routes.py sur le modèle de health
 app.include_router(health_router)
-app.include_router(site_router)
-app.include_router(measurement_router)
