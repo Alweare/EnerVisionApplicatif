@@ -1,0 +1,68 @@
+{
+  "realm": "enervision",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      { "name": "admin", "description": "Accès complet : gestion des sites, utilisateurs, configuration." },
+      { "name": "user", "description": "Lecture des données de consommation et du dashboard." }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "backend-api",
+      "name": "EnerVision Backend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "__BACKEND_API_CLIENT_SECRET__",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [],
+      "webOrigins": []
+    },
+    {
+      "clientId": "frontend-streamlit",
+      "name": "EnerVision Streamlit",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "__FRONTEND_CLIENT_SECRET__",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:8501/*"],
+      "webOrigins": ["http://localhost:8501"]
+    }
+  ],
+  "users": [
+    {
+      "username": "demo.admin",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "demo.admin@enervision.local",
+      "firstName": "Demo",
+      "lastName": "Admin",
+      "requiredActions": [],
+      "credentials": [
+        { "type": "password", "value": "demo-admin-password", "temporary": false }
+      ],
+      "realmRoles": ["admin", "user"]
+    },
+    {
+      "username": "demo.user",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "demo.user@enervision.local",
+      "firstName": "Demo",
+      "lastName": "User",
+      "requiredActions": [],
+      "credentials": [
+        { "type": "password", "value": "demo-user-password", "temporary": false }
+      ],
+      "realmRoles": ["user"]
+    }
+  ]
+}

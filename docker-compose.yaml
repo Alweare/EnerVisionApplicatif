@@ -30,6 +30,56 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_APP_USER: ${POSTGRES_APP_USER}
       POSTGRES_APP_PWD: ${POSTGRES_APP_PWD}
+      KEYCLOAK_URL: ${KEYCLOAK_URL}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
+    secrets:
+      - keycloak_client_secret
+    depends_on:
+      - keycloak
+
+  keycloak:
+    build:
+      context: .
+      dockerfile: backend/authentication/Dockerfile
+    networks:
+      - enervision_network
+    ports:
+      - "8080:8080"
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_PORT: "5432"
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+    secrets:
+      - keycloak_client_secret
+      - keycloak_frontend_client_secret
+      - keycloak_db_password
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+
+  keycloak-db:
+    image: postgres:16-alpine
+    networks:
+      - enervision_network
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD_FILE: /run/secrets/keycloak_db_password
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    secrets:
+      - keycloak_db_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   frontend:
     build:
       context: ./frontend
@@ -65,8 +115,17 @@ secrets:
     file: ./secrets/db_password
 
   keycloak_client_secret:
-    file: ./secrets/keycloak_client_secret
+    file: ./secrets/keyCloakSecrets/keycloak_client_secret
+
+  keycloak_frontend_client_secret:
+    file: ./secrets/keyCloakSecrets/keycloak_frontend_client_secret
+
+  keycloak_db_password:
+    file: ./secrets/keyCloakSecrets/keycloak_db_password
 
 networks:
   enervision_network:
     external: true
+
+volumes:
+  keycloak_db_data:
