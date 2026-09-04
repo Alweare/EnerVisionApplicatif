@@ -1,0 +1,39 @@
+services:
+  authentication:
+    image: ${AUTHENTICATION_IMAGE}
+    restart: unless-stopped
+    secrets:
+      - db_password
+      - keycloak_client_secret
+
+  consumption:
+    image: ${CONSUMPTION_IMAGE}
+    restart: unless-stopped
+    secrets:
+      - db_password
+      - keycloak_client_secret
+
+  etl:
+    image: ${ETL_IMAGE}
+    restart: unless-stopped
+    secrets:
+      - db_password
+
+  prediction:
+    image: ${PREDICTION_IMAGE}
+    restart: unless-stopped
+    secrets:
+      - db_password
+
+  recommandation:
+    image: ${RECOMMANDATION_IMAGE}
+    restart: unless-stopped
+    secrets:
+      - db_password
+
+secrets:
+  db_password:
+    file: ./secrets/db_password
+
+  keycloak_client_secret:
+    file: ./secrets/keycloak_client_secret
