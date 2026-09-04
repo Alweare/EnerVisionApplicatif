@@ -57,7 +57,7 @@ jobs:
             backend/recommandation: 'backend/recommandation/**'
             backend/health: 'backend/health/**'
             backend/core: 'backend/core/**'
-            backend/workerIngestion: 'backend/workerIngestion/**'
+            backend/workeringestion: 'backend/workeringestion/**'
             frontend: 'frontend/**'
 
       - name: Build service matrix
