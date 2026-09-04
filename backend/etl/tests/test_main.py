@@ -7,6 +7,7 @@ os.environ.setdefault("POSTGRES_PASSWORD", "test_password")
 os.environ.setdefault("POSTGRES_HOST", "localhost")
 os.environ.setdefault("POSTGRES_PORT", "5432")
 os.environ.setdefault("POSTGRES_APP_USER", "test_app_user")
+os.environ.setdefault("POSTGRES_APP_PWD", "test_app_pwd")
 
 from etl.main import main
 
