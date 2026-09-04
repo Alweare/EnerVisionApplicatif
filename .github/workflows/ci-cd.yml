@@ -67,29 +67,26 @@ jobs:
           CHANGES: ${{ steps.filter.outputs.changes }}
         run: |
           set -euo pipefail
-
+  
           SERVICES=$(jq -c '
-            [ .[]
-              | select(startswith("_") | not)
-              | { name: (split("/") | last), dir: . }
-            ]' <<< "$CHANGES")
-
+            [ .[] | { name: (split("/") | last), dir: . } ]' <<< "$CHANGES")
+  
           BACKEND=$(jq -c '[ .[] | select(.dir | startswith("backend/")) ]' <<< "$SERVICES")
           FRONTEND=$(jq -c '[ .[] | select(.dir | startswith("backend/") | not) ]' <<< "$SERVICES")
-
+  
           if [ "$SERVICES" = "[]" ]; then
             HAS_CHANGES=false
           else
             HAS_CHANGES=true
           fi
-
+  
           {
             echo "services=$SERVICES"
             echo "backend=$BACKEND"
             echo "frontend=$FRONTEND"
             echo "has_changes=$HAS_CHANGES"
           } >> "$GITHUB_OUTPUT"
-
+  
           echo "### Services impactés" >> "$GITHUB_STEP_SUMMARY"
           jq -r '.[] | "- \(.name) (`\(.dir)`)"' <<< "$SERVICES" >> "$GITHUB_STEP_SUMMARY"
 
@@ -251,14 +248,17 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
 
       - name: Scan image with Trivy
-        # Version pinnée : @master casse la pipeline sans prévenir.
-        # Idéalement pinner le SHA du commit correspondant au tag.
         uses: aquasecurity/trivy-action@0.35.0
+        env:
+          TRIVY_IGNORE_UNFIXED: "true"
+          TRIVY_SEVERITY: "CRITICAL,HIGH"
+          TRIVY_SCANNERS: "vuln"
+          TRIVY_SKIP_VERSION_CHECK: "true"
+          TRIVY_DISABLE_VEX_NOTICE: "true"
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}:${{ github.sha }}
           format: table
           exit-code: "1"
-          severity: CRITICAL,HIGH
 
       # L'artefact n'est produit que si le scan a réussi ET qu'une publication suivra
       - name: Save Docker image

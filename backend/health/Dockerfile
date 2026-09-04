@@ -1,13 +1,11 @@
-FROM python:3.12.14-slim-trixie
+FROM python:3.12.14-slim-bookworm
 
-WORKDIR /backend
+WORKDIR /app
 
-COPY backend/requirements.txt .
+COPY backend/health/requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/ .
-
-EXPOSE 8000
+COPY backend/health/ .
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
