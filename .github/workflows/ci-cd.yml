@@ -36,19 +36,18 @@ jobs:
       pull-requests: read
 
     outputs:
-      # [{ "name": "authentication", "dir": "backend/authentication" }, ...]
+      # [{ "name": "authentication", "dir": "backend/authentication", "root": "backend" },
+      #  { "name": "frontend", "dir": "frontend", "root": "frontend" }]
       services: ${{ steps.matrix.outputs.services }}
-      backend: ${{ steps.matrix.outputs.backend }}
-      frontend: ${{ steps.matrix.outputs.frontend }}
       has_changes: ${{ steps.matrix.outputs.has_changes }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Detect changed services
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             backend/authentication: 'backend/authentication/**'
@@ -67,38 +66,41 @@ jobs:
           CHANGES: ${{ steps.filter.outputs.changes }}
         run: |
           set -euo pipefail
-  
+
+          # root = racine du projet Python (backend ou frontend) :
+          # c'est là que vivent requirements*.txt et pytest.ini / pyproject.toml
           SERVICES=$(jq -c '
-            [ .[] | { name: (split("/") | last), dir: . } ]' <<< "$CHANGES")
-  
-          BACKEND=$(jq -c '[ .[] | select(.dir | startswith("backend/")) ]' <<< "$SERVICES")
-          FRONTEND=$(jq -c '[ .[] | select(.dir | startswith("backend/") | not) ]' <<< "$SERVICES")
-  
+            [ .[] | {
+                name: (split("/") | last),
+                dir: .,
+                root: (split("/") | first)
+              } ]' <<< "$CHANGES")
+
           if [ "$SERVICES" = "[]" ]; then
             HAS_CHANGES=false
           else
             HAS_CHANGES=true
           fi
-  
+
           {
             echo "services=$SERVICES"
-            echo "backend=$BACKEND"
-            echo "frontend=$FRONTEND"
             echo "has_changes=$HAS_CHANGES"
           } >> "$GITHUB_OUTPUT"
-  
+
           echo "### Services impactés" >> "$GITHUB_STEP_SUMMARY"
           jq -r '.[] | "- \(.name) (`\(.dir)`)"' <<< "$SERVICES" >> "$GITHUB_STEP_SUMMARY"
 
 
   # ============================================================
-  # STAGE 1a : TEST BACKEND (pytest)
+  # STAGE 1 : TEST (pytest)
+  # Back et front sont tous les deux en Python (Streamlit côté front),
+  # donc un seul job matriciel suffit.
   # ============================================================
 
-  test-backend:
+  test:
     name: Test - ${{ matrix.service.name }}
     needs: changes
-    if: needs.changes.outputs.backend != '[]'
+    if: needs.changes.outputs.has_changes == 'true'
 
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -106,11 +108,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: ${{ fromJson(needs.changes.outputs.backend) }}
+        service: ${{ fromJson(needs.changes.outputs.services) }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0   # requis si SonarQube est branché sur ce job
 
@@ -119,18 +121,28 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: ${{ matrix.service.root }}/requirements*.txt
 
       - name: Install dependencies
-        working-directory: backend
+        working-directory: ${{ matrix.service.root }}
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt 
+
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          fi
+
           pip install pytest pytest-cov
 
       - name: Run tests for impacted service
         env:
           SERVICE_DIR: ${{ matrix.service.dir }}
+          SERVICE_ROOT: ${{ matrix.service.root }}
         run: |
           set -euo pipefail
 
@@ -141,7 +153,7 @@ jobs:
             exit 1
           fi
 
-          export PYTHONPATH="$PWD/$SERVICE_DIR:$PWD/backend:${PYTHONPATH:-}"
+          export PYTHONPATH="$PWD/$SERVICE_DIR:$PWD/$SERVICE_ROOT:${PYTHONPATH:-}"
 
           python -m pytest "$TEST_DIR" \
             --cov="$SERVICE_DIR" \
@@ -151,53 +163,12 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.service.name }}
           path: ${{ matrix.service.dir }}/coverage.xml
           retention-days: 7
           if-no-files-found: warn
-
-
-  # ============================================================
-  # STAGE 1b : TEST FRONTEND (npm)
-  # ============================================================
-
-  test-frontend:
-    name: Test - ${{ matrix.service.name }}
-    needs: changes
-    if: needs.changes.outputs.frontend != '[]'
-
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    strategy:
-      fail-fast: false
-      matrix:
-        service: ${{ fromJson(needs.changes.outputs.frontend) }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: ${{ matrix.service.dir }}/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.service.dir }}
-        run: npm ci
-
-      - name: Lint
-        working-directory: ${{ matrix.service.dir }}
-        run: npm run lint --if-present
-
-      - name: Run tests
-        working-directory: ${{ matrix.service.dir }}
-        run: npm test -- --coverage
 
 
   # ============================================================
@@ -211,16 +182,13 @@ jobs:
 
     needs:
       - changes
-      - test-backend
-      - test-frontend
+      - test
 
-    # test-backend ou test-frontend peuvent être "skipped" selon ce qui a changé :
-    # !cancelled() + contrôle explicite des résultats évite que build soit skippé.
+    # Plus besoin de !cancelled() : `test` n'est jamais "skipped"
+    # quand has_changes == 'true', donc la dépendance est simple.
     if: >
-      !cancelled() &&
       needs.changes.outputs.has_changes == 'true' &&
-      needs.test-backend.result != 'failure' &&
-      needs.test-frontend.result != 'failure'
+      (github.event_name == 'pull_request' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
 
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -235,7 +203,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build Docker image
         uses: docker/build-push-action@v6
@@ -271,7 +239,7 @@ jobs:
 
       - name: Upload Docker image artifact
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-image-${{ matrix.service.name }}
           path: ${{ matrix.service.name }}.tar.gz
@@ -309,7 +277,7 @@ jobs:
 
     steps:
       - name: Download Docker image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: docker-image-${{ matrix.service.name }}
 
