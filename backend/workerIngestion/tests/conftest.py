@@ -5,7 +5,7 @@ from workerIngestion import repository
 
 # Jeux de données figés, calqués sur la forme réelle de la Mock API
 # (vérifiée en direct sur http://10.105.200.45:8000) mais avec des valeurs
-# fixes pour des assertions déterministes en test.
+# fixes pour des assertions déterministes en tests.
 
 CURRENT_READINGS_JSON = {
     "SITE001": {
@@ -70,6 +70,6 @@ def mock_httpx(monkeypatch):
                 return fake_response(404, {"detail": f"Site {site_id} non trouvé"})
             return fake_response(200, reading)
 
-        raise AssertionError(f"URL non mockée dans ce test : {url}")
+        raise AssertionError(f"URL non mockée dans ce tests : {url}")
 
     monkeypatch.setattr(repository._client, "get", fake_get)

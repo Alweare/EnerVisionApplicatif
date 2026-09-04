@@ -79,7 +79,7 @@ def main() -> int:
         lambda: mlflow.upload_blob(TEST_BLOB, TEST_DATA, overwrite=True),
     ))
 
-    # Nettoyage des blobs de test
+    # Nettoyage des blobs de tests
     for client in (ingestion, mlflow):
         try:
             client.delete_blob(TEST_BLOB)

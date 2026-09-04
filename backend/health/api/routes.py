@@ -9,4 +9,4 @@ router = APIRouter()
     description="Endpoint de health check, utilisé par Docker pour vérifier que le service répond.",
 )
 async def health():
-    return {"status": "test"}
+    return {"status": "tests"}

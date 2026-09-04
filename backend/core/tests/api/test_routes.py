@@ -18,7 +18,7 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def _override_get_db():
-    """Neutralise la vraie session DB : les services sont mockés dans chaque test."""
+    """Neutralise la vraie session DB : les services sont mockés dans chaque tests."""
     app.dependency_overrides[get_db] = lambda: None
     yield
     app.dependency_overrides.clear()
