@@ -146,6 +146,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "$(find "$SERVICE_DIR" -name '*.py' -print -quit)" ]; then
+            echo "::notice::Aucun fichier Python dans $SERVICE_DIR (ex. image Keycloak) — tests ignorés."
+            exit 0
+          fi
+
           TEST_DIR="$SERVICE_DIR/tests"
 
           if [ ! -d "$TEST_DIR" ]; then
