@@ -1,7 +1,7 @@
 # Image officielle Keycloak, avec notre realm pré-configuré importé au
 # démarrage — "Realm et clients configurés" devient reproductible depuis le
 # repo plutôt que dépendant d'une config faite à la main dans la console admin.
-FROM quay.io/keycloak/keycloak:26.0
+FROM quay.io/keycloak/keycloak:26.7.3
 
 # realm-export.json est un TEMPLATE (placeholders __XXX__, aucune vraie valeur) :
 # les vrais secrets clients viennent des Docker secrets, injectés par entrypoint.sh
