@@ -4,8 +4,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from workerIngestion.api.routes import sites_router
-from workerIngestion.poller import poll_loop
+from workeringestion.api.routes import sites_router
+from workeringestion.poller import poll_loop
 
 # uvicorn ne configure pas de handler pour nos loggers applicatifs (seulement
 # les siens) : sans ceci, les logs du polling n'apparaîtraient nulle part,

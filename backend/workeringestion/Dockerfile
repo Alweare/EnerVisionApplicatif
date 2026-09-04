@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/__init__.py ./backend/__init__.py
 COPY backend/core/ ./backend/core/
-COPY backend/workerIngestion/ ./backend/workerIngestion/
+COPY backend/workeringestion/ ./backend/workeringestion/
 
 EXPOSE 8000
 

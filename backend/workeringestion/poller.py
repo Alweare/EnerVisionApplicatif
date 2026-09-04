@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 
-from workerIngestion import service
+from workeringestion import service
 
 logger = logging.getLogger(__name__)
 

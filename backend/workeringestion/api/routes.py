@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 
 from core.schemas import ErrorDetail
-from workerIngestion import service
-from workerIngestion.schemas import EnergyReading
+from workeringestion import service
+from workeringestion.schemas import EnergyReading
 
 sites_router = APIRouter(prefix="/api/v1/sites", tags=["Worker Ingestion"])
 

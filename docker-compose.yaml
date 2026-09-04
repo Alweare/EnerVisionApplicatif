@@ -1,17 +1,17 @@
 services:
-  traefik:
-    image: traefik:v3.7
-    container_name: traefik
-    cap_add:
-      - NET_BIND_SERVICE
-    command:
-      - --entrypoints.websecure.address=:443
-      - --providers.file.filename=/etc/traefik/dynamic.yml
-    ports:
-      - 443:443
-    volumes:
-      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
-      - ./certs:/certs:ro
+  # traefik:
+  #   image: traefik:v3.7
+  #   container_name: traefik
+  #   cap_add:
+  #     - NET_BIND_SERVICE
+  #   command:
+  #     - --entrypoints.websecure.address=:443
+  #     - --providers.file.filename=/etc/traefik/dynamic.yml
+  #   ports:
+  #     - 443:443
+  #   volumes:
+  #     - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+  #     - ./certs:/certs:ro
   backend:
     networks:
       - enervision_network
@@ -45,7 +45,7 @@ services:
   worker-ingestion:
     build:
       context: .
-      dockerfile: backend/workerIngestion/Dockerfile
+      dockerfile: backend/workeringestion/Dockerfile
 
     ports:
       - "8001:8000"
@@ -56,9 +56,9 @@ services:
     volumes:
       - ./backend/__init__.py:/backend/__init__.py
       - ./backend/core:/backend/core
-      - ./backend/workerIngestion:/backend/workerIngestion
+      - ./backend/workeringestion:/backend/workeringestion
 
-    command: uvicorn workerIngestion.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn workeringestion.main:app --host 0.0.0.0 --port 8000 --reload
 
 secrets:
   db_password:
