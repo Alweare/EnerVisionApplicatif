@@ -6,6 +6,7 @@ from azure.storage.blob import BlobServiceClient
 import logging
 import json
 import os
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -30,20 +31,16 @@ class ETLService:
         )
 
     def extract_all(self, limit: int = None) -> list[dict]:
-        """Extrait les mesures en ne téléchargeant que les N derniers fichiers blobs."""
         readings = []
         container_name = os.getenv("AZURE_CONTAINER_NAME")
         container_client = self.blob_service_client.get_container_client(container_name)
         prefix = "brute_data/"
 
-        # 1. Récupérer la liste de tous les blobs (uniquement les métadonnées, pas de téléchargement)
         blobs = [b for b in container_client.list_blobs(name_starts_with=prefix) if not b.name.endswith('/')]
 
-        # 2. Si une limite est définie, ne garder que les N derniers blobs
         if limit:
             blobs = blobs[-limit:]
 
-        # 3. Télécharger uniquement les fichiers sélectionnés
         for blob in blobs:
             blob_client = container_client.get_blob_client(blob.name)
             content = blob_client.download_blob().readall()
@@ -85,7 +82,6 @@ class ETLService:
     def load(self, measurement: Measurement) -> None:
         self.measurement_service.save_measurement(measurement)
 
-    # todo à lancer toutes les 60 secs
     def run(self, limit: int = None) -> None:
         for reading in self.extract_all(limit=limit):
             site_id = reading.get("site_id")
@@ -107,3 +103,13 @@ class ETLService:
                 logger.error(f"[{site_id}] Erreur lors du traitement de la mesure : {e}")
                 self.db.rollback()
                 continue
+
+    def start_continuous_run(self, interval: int = 60) -> None:
+        logger.info("Démarrage du service ETL en mode continu...")
+        while True:
+            try:
+                self.run()
+            except Exception as e:
+                logger.error(f"Erreur critique dans le cycle ETL : {e}")
+
+            time.sleep(interval)
