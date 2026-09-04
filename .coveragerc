@@ -1,0 +1,12 @@
+# Exclusions de couverture communes à tous les services (backend + frontend).
+#
+# frontend : app.py / pages/* / components/* sont des écrans Streamlit,
+# exécutables seulement dans le runtime Streamlit — pas unitairement
+# testables tels quels. À couvrir plus tard par des tests d'intégration/E2E.
+# En attendant, seule la couche frontend/services/ (logique pure) est mesurée.
+[run]
+omit =
+    frontend/tests/*
+    frontend/app.py
+    frontend/pages/*
+    frontend/components/*
