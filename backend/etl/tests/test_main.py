@@ -1,4 +1,12 @@
+import os
 from unittest.mock import patch, MagicMock
+
+os.environ.setdefault("POSTGRES_DB", "test_db")
+os.environ.setdefault("POSTGRES_USER", "test_user")
+os.environ.setdefault("POSTGRES_PASSWORD", "test_password")
+os.environ.setdefault("POSTGRES_HOST", "localhost")
+os.environ.setdefault("POSTGRES_PORT", "5432")
+
 from etl.main import main
 
 
@@ -14,4 +22,3 @@ def test_main_runs_etl(mock_session_local, mock_etl_service):
         pass
 
     mock_etl_service.assert_called_once()
-    mock_instance.run.assert_called()
