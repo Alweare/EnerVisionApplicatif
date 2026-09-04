@@ -78,26 +78,33 @@ def test_load_calls_save_with_measurement():
 
     service.measurement_service.save_measurement.assert_called_once_with(measurement)
 
-def test_run_for_site_processes_each_reading():
+def test_run_processes_each_reading():
     service = make_service_with_mock()
-    service.extract = Mock(return_value=[{"reading": 1}, {"reading": 2}])
+    # Mock de la base de données pour que la vérification du site réussisse
+    service.db = Mock()
+    service.db.query().filter().scalar.return_value = "SITE001"
+
+    service.extract_all = Mock(return_value=[
+        {"site_id": "SITE001", "reading": 1},
+        {"site_id": "SITE001", "reading": 2}
+    ])
     service.transform = Mock(side_effect=lambda site_id, reading: f"measurement-{reading['reading']}")
     service.load = Mock()
 
-    service.run_for_site("SITE001")
+    service.run()
 
     assert service.transform.call_count == 2
     assert service.load.call_count == 2
     service.load.assert_any_call("measurement-1")
     service.load.assert_any_call("measurement-2")
 
-def test_run_for_site_does_nothing_when_no_readings():
+def test_run_does_nothing_when_no_readings():
     service = make_service_with_mock()
-    service.extract = Mock(return_value=[])
+    service.extract_all = Mock(return_value=[])
     service.transform = Mock()
     service.load = Mock()
 
-    service.run_for_site("SITE001")
+    service.run()
 
     service.transform.assert_not_called()
     service.load.assert_not_called()
