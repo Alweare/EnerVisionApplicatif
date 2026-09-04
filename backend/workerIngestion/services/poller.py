@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 
-from workerIngestion import blob_archive, repository
+from workerIngestion.api import blob_storage, mock_api
 
 logger = logging.getLogger(__name__)
 
@@ -10,21 +10,16 @@ POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "60"))
 
 
 async def poll_once(site_id: str) -> None:
-    """Un cycle pour un site : récupère la lecture brute, l'archive telle
-    quelle sur le Data Lake avant toute transformation, puis journalise un
-    résumé.
-
-    Passe par repository directement (pas par service.get_current_reading) :
-    on a besoin du texte brut de la réponse, pas d'un EnergyReading reparsé.
-    """
-    response = await repository.get_current_reading_raw(site_id)
+    """Un cycle pour un site : lit, archive brut, logue. Passe par mock_api
+    directement (texte brut requis, pas un modèle reparsé)."""
+    response = await mock_api.get_current_reading_raw(site_id)
 
     if response.status_code == 404:
         logger.warning("Site '%s' introuvable lors du polling", site_id)
         return
     response.raise_for_status()
 
-    blob_name = await blob_archive.archive_raw(response.text)
+    blob_name = await blob_storage.archive_raw(response.text)
 
     data_quality = response.json().get("data_quality")
     logger.info(
@@ -37,7 +32,7 @@ async def poll_once(site_id: str) -> None:
 
 async def poll_all_sites() -> None:
     """Un cycle complet : découvre les sites connus, puis poll+archive chacun."""
-    site_ids = await repository.list_site_ids()
+    site_ids = await mock_api.list_site_ids()
     for site_id in site_ids:
         try:
             await poll_once(site_id)

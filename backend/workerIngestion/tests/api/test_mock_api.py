@@ -1,15 +1,15 @@
-from workerIngestion import repository
+from workerIngestion.api import mock_api
 
 
 async def test_get_current_reading_raw_returns_matching_reading(mock_httpx):
-    response = await repository.get_current_reading_raw("SITE001")
+    response = await mock_api.get_current_reading_raw("SITE001")
 
     assert response.status_code == 200
     assert response.json()["data_quality"] == "good"
 
 
 async def test_get_current_reading_raw_keeps_null_fields_for_partial_quality(mock_httpx):
-    response = await repository.get_current_reading_raw("SITE002")
+    response = await mock_api.get_current_reading_raw("SITE002")
 
     body = response.json()
     assert body["data_quality"] == "partial"
@@ -18,7 +18,7 @@ async def test_get_current_reading_raw_keeps_null_fields_for_partial_quality(moc
 
 
 async def test_get_current_reading_raw_keeps_all_null_fields_for_critical_quality(mock_httpx):
-    response = await repository.get_current_reading_raw("SITE003")
+    response = await mock_api.get_current_reading_raw("SITE003")
 
     body = response.json()
     assert body["data_quality"] == "critical"
@@ -27,12 +27,12 @@ async def test_get_current_reading_raw_keeps_all_null_fields_for_critical_qualit
 
 
 async def test_get_current_reading_raw_does_not_normalize_404(mock_httpx):
-    response = await repository.get_current_reading_raw("UNKNOWN")
+    response = await mock_api.get_current_reading_raw("UNKNOWN")
 
     assert response.status_code == 404
 
 
 async def test_list_site_ids_returns_known_sites(mock_httpx):
-    site_ids = await repository.list_site_ids()
+    site_ids = await mock_api.list_site_ids()
 
     assert site_ids == ["SITE001", "SITE002", "SITE003"]

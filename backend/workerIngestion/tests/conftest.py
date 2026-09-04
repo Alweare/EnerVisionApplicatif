@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from workerIngestion import blob_archive, repository
+from workerIngestion.api import blob_storage, mock_api
 
 # Jeux de données figés, calqués sur la forme réelle de la Mock API
 # (vérifiée en direct sur http://10.105.200.45:8000) mais avec des valeurs
@@ -69,7 +69,7 @@ def fake_response(status_code: int, json_data=None) -> httpx.Response:
 
 @pytest.fixture
 def mock_httpx(monkeypatch):
-    """Route le client httpx partagé du repository vers les fixtures ci-dessus, sans réseau."""
+    """Route le client httpx partagé de mock_api vers les fixtures ci-dessus, sans réseau."""
 
     async def fake_get(url: str) -> httpx.Response:
         if url.endswith("/api/v1/sites"):
@@ -84,7 +84,7 @@ def mock_httpx(monkeypatch):
 
         raise AssertionError(f"URL non mockée dans ce test : {url}")
 
-    monkeypatch.setattr(repository._client, "get", fake_get)
+    monkeypatch.setattr(mock_api._client, "get", fake_get)
 
 
 @pytest.fixture
@@ -95,5 +95,5 @@ def mock_blob(monkeypatch):
     async def fake_upload_blob(name, data, overwrite=False):
         uploads.append({"name": name, "data": data, "overwrite": overwrite})
 
-    monkeypatch.setattr(blob_archive._container_client, "upload_blob", fake_upload_blob)
+    monkeypatch.setattr(blob_storage._container_client, "upload_blob", fake_upload_blob)
     return uploads

@@ -1,0 +1,31 @@
+import logging
+
+from azure.core.exceptions import ResourceExistsError
+
+from workerIngestion.api import blob_storage
+
+
+async def test_archive_raw_uploads_and_returns_the_blob_name(mock_blob):
+    blob_name = await blob_storage.archive_raw('{"site_id": "SITE001"}')
+
+    assert blob_name.startswith("brute_data/")
+    assert mock_blob[0]["name"] == blob_name
+    assert mock_blob[0]["data"] == '{"site_id": "SITE001"}'
+
+
+async def test_archive_raw_logs_a_warning_and_does_not_raise_on_name_collision(
+    monkeypatch, caplog
+):
+    async def fake_upload_blob(name, data, overwrite=False):
+        raise ResourceExistsError("The specified blob already exists.")
+
+    monkeypatch.setattr(blob_storage._container_client, "upload_blob", fake_upload_blob)
+
+    with caplog.at_level(logging.WARNING, logger="workerIngestion.api.blob_storage"):
+        blob_name = await blob_storage.archive_raw('{"site_id": "SITE001"}')
+
+    assert blob_name.startswith("brute_data/")
+    assert any(
+        record.levelname == "WARNING" and "déjà existant" in record.message
+        for record in caplog.records
+    )
