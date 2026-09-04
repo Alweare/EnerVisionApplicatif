@@ -1,5 +1,5 @@
-from workerIngestion import repository
-from workerIngestion.schemas import EnergyReading
+from workeringestion import repository
+from workeringestion.schemas import EnergyReading
 
 
 async def test_get_current_reading_returns_matching_reading(mock_httpx):
