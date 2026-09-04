@@ -45,7 +45,7 @@ services:
   worker-ingestion:
     build:
       context: .
-      dockerfile: backend/workerIngestion/Dockerfile
+      dockerfile: backend/workeringestion/Dockerfile
 
     ports:
       - "8001:8000"
@@ -56,9 +56,9 @@ services:
     volumes:
       - ./backend/__init__.py:/backend/__init__.py
       - ./backend/core:/backend/core
-      - ./backend/workerIngestion:/backend/workerIngestion
+      - ./backend/workeringestion:/backend/workeringestion
 
-    command: uvicorn workerIngestion.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn workeringestion.main:app --host 0.0.0.0 --port 8000 --reload
 
 secrets:
   db_password:
