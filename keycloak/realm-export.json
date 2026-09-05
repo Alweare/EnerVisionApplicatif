@@ -50,6 +50,7 @@
   ],
   "users": [
     {
+      "id": "7e57c0de-0000-4000-8000-000000000001",
       "username": "test",
       "enabled": true,
       "emailVerified": true,

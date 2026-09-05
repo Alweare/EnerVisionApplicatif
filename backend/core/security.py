@@ -1,3 +1,4 @@
+import logging
 from functools import lru_cache
 
 import httpx
@@ -7,6 +8,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from core.config import settings
+
+logger = logging.getLogger(__name__)
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -33,6 +36,7 @@ def _get_oidc_config() -> _OidcConfig:
         response = httpx.get(discovery_url, timeout=5.0)
         response.raise_for_status()
     except httpx.HTTPError as error:
+        logger.warning("Découverte OIDC échouée (%s) : %r", discovery_url, error)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Service d'authentification indisponible.",
@@ -62,6 +66,7 @@ def _decode_token(token: str) -> dict:
             issuer=oidc_config.issuer,
         )
     except jwt.PyJWTError as error:
+        logger.info("Rejet du token : %r", error)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token invalide ou expiré.",
