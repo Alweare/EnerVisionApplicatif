@@ -10,7 +10,7 @@ from core.api.service.measurement_service import (
     MeasurementNotFoundError,
     SiteNotFoundError,
 )
-from core.database import get_db
+from shared.database import get_db
 from main import app
 
 client = TestClient(app)

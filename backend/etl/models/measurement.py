@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Float, TIMESTAMP, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
-from core.base import Base
+from shared.base import Base
 
 class Measurement(Base):
     __tablename__ = "measurement"
