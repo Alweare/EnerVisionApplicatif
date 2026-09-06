@@ -24,8 +24,8 @@ class MeasurementService:
                 data_quality=cleaned["data_quality"],
         )
 
-    def save_measurement(self, measurement: Measurement) -> Measurement:
-        return self.repository.save(measurement)
+    def add_measurement(self, measurement: Measurement) -> Measurement:
+        return self.repository.add(measurement)
 
     def get_last_measurement(self, site_id):
         return self.repository.get_last_measurement(site_id)

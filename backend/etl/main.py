@@ -1,5 +1,7 @@
 
 import logging
+import os
+
 from etl.database import SessionLocal
 from etl.service.etl_service import ETLService
 
@@ -14,7 +16,9 @@ def main():
     try:
         print("Lancement du service ETL...")
         etl = ETLService(db)
-        etl.start_continuous_run(interval=60)
+        etl.start_continuous_run(
+            interval=int(os.getenv("ETL_INTERVAL_SECONDS", "60"))
+        )
     except KeyboardInterrupt:
         print("\nArrêt manuel du service ETL.")
     except Exception as e:
