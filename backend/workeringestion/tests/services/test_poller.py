@@ -1,6 +1,9 @@
 import json
 import logging
 
+from azure.core.exceptions import ServiceRequestError
+
+from workeringestion.api import blob_storage
 from workeringestion.services import poller
 
 
@@ -73,3 +76,90 @@ async def test_poll_all_sites_continues_when_one_site_fails(mock_httpx, mock_blo
 
     archived_sites = {json.loads(u["data"])["site_id"] for u in mock_blob}
     assert archived_sites == {"SITE001", "SITE003"}  # SITE002 a échoué, les autres continuent
+
+
+async def test_poll_alerts_once_archives_the_raw_response_under_alerts(mock_httpx, mock_blob):
+    await poller.poll_alerts_once()
+
+    assert len(mock_blob) == 1
+    upload = mock_blob[0]
+    assert upload["name"].startswith("alert/")
+    assert upload["overwrite"] is False
+    archived = json.loads(upload["data"])
+    assert [alert["alert_id"] for alert in archived] == [
+        "ALR-SITE002-1718458320",
+        "ALR-SITE001-1718458500",
+    ]
+
+
+async def test_poll_alerts_once_makes_a_single_call_for_all_sites(mock_httpx, mock_blob):
+    await poller.poll_alerts_once()
+
+    assert len(mock_blob) == 1
+
+
+async def test_poll_alerts_once_logs_how_many_alerts_were_archived(mock_httpx, mock_blob, caplog):
+    with caplog.at_level(logging.INFO, logger="workeringestion.services.poller"):
+        await poller.poll_alerts_once()
+
+    assert any("2 alerte" in record.getMessage() for record in caplog.records)
+
+
+async def test_poll_loop_archives_measurements_and_alerts_in_the_same_cycle(
+    mock_httpx, mock_blob, monkeypatch
+):
+    async def stop_after_first_cycle(_seconds):
+        raise StopAsyncIteration
+
+    monkeypatch.setattr(poller.asyncio, "sleep", stop_after_first_cycle)
+
+    try:
+        await poller.poll_loop()
+    except StopAsyncIteration:
+        pass
+
+    prefixes = [u["name"].split("/")[0] for u in mock_blob]
+    assert prefixes.count("brute_data") == 3  
+    assert prefixes.count("alert") == 1      
+
+
+async def test_poll_loop_still_archives_measurements_when_alerts_fail(
+    mock_httpx, mock_blob, monkeypatch, caplog
+):
+    async def failing_alerts():
+        raise RuntimeError("alerts indisponible")
+
+    async def stop_after_first_cycle(_seconds):
+        raise StopAsyncIteration
+
+    monkeypatch.setattr(poller, "poll_alerts_once", failing_alerts)
+    monkeypatch.setattr(poller.asyncio, "sleep", stop_after_first_cycle)
+
+    with caplog.at_level(logging.ERROR, logger="workeringestion.services.poller"):
+        try:
+            await poller.poll_loop()
+        except StopAsyncIteration:
+            pass
+
+    assert len(mock_blob) == 3
+    assert any("alertes" in record.getMessage() for record in caplog.records)
+
+
+async def test_poll_all_sites_continues_when_one_upload_fails(mock_httpx, monkeypatch, caplog):
+    attempts: list[str] = []
+    uploads: list[str] = []
+
+    async def flaky_upload_blob(name, data, overwrite=False):
+        attempts.append(name)
+        if len(attempts) == 2:
+            raise ServiceRequestError("Connection refused")
+        uploads.append(name)
+
+    monkeypatch.setattr(blob_storage._container_client, "upload_blob", flaky_upload_blob)
+
+    with caplog.at_level(logging.ERROR, logger="workeringestion.services.poller"):
+        await poller.poll_all_sites()
+
+    assert len(attempts) == 3
+    assert len(uploads) == 2
+    assert any("SITE002" in r.getMessage() for r in caplog.records)
