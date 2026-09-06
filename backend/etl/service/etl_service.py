@@ -114,46 +114,61 @@ class ETLService:
         return bool(
             self.db.query(Site.site_id).filter(Site.site_id == site_id).scalar()
         )
-    # Traite un fichier : téléchargement, transformation, ajout à la transaction.
-    def process_blob(self, blob_path: str) -> bool:
-        try:
-            readings = self.download_readings(blob_path)
-        except Exception as e:
-            logger.error(f"[{blob_path}] Lecture du blob impossible : {e}")
-            return False
+# Traite un fichier : téléchargement, transformation, ajout à la transaction.
+    def stage_blob(self, blob_path: str) -> int:
+        readings = self.download_readings(blob_path)
+        loaded = 0
+
+        for reading in readings:
+            site_id = reading.get("site_id")
+
+            if not site_id:
+                logger.warning(f"[{blob_path}] Lecture ignorée : site_id manquant.")
+                continue
+
+            if not self._site_exists(site_id):
+                logger.warning(
+                    f"[{blob_path}][{site_id}] Site introuvable en BDD. "
+                    f"Lecture ignorée."
+                )
+                continue
+
+            self.load(self.transform(site_id, reading))
+            loaded += 1
+
+        self.file_tracking_service.mark_processed(blob_path)
+        return loaded
+
+    def process_batch(self, blob_paths: list[str]) -> bool:
+        staged_files = 0
+        staged_measurements = 0
 
         try:
-            loaded = 0
-            for reading in readings:
-                site_id = reading.get("site_id")
-
-                if not site_id:
-                    logger.warning(
-                        f"[{blob_path}] Lecture ignorée : site_id manquant."
+            for blob_path in blob_paths:
+                try:
+                    with self.db.begin_nested():
+                        staged_measurements += self.stage_blob(blob_path)
+                except Exception as e:
+                    logger.error(
+                        f"[{blob_path}] Fichier en échec, annulé et sauté "
+                        f"(sera rejoué) : {e}"
                     )
                     continue
+                staged_files += 1
 
-                if not self._site_exists(site_id):
-                    logger.warning(
-                        f"[{blob_path}][{site_id}] Site introuvable en BDD. "
-                        f"Lecture ignorée."
-                    )
-                    continue
-
-                self.load(self.transform(site_id, reading))
-                loaded += 1
-
-            self.file_tracking_service.mark_processed(blob_path)
             self.db.commit()
         except Exception as e:
             self.db.rollback()
             logger.error(
-                f"[{blob_path}] Erreur pendant le traitement, transaction "
-                f"annulée (le fichier sera retenté) : {e}"
+                "Erreur pendant le lot, transaction annulée : %d fichier(s) "
+                "seront rejoués au prochain cycle : %s", staged_files, e,
             )
             return False
 
-        logger.info(f"[{blob_path}] {loaded} mesure(s) insérée(s) et fichier tracé.")
+        logger.info(
+            "Lot validé : %d fichier(s) tracé(s), %d mesure(s) insérée(s).",
+            staged_files, staged_measurements,
+        )
         return True
 
     # --- Orchestration ----------------------------------------------------
@@ -171,8 +186,10 @@ class ETLService:
             len(recent_paths) - len(new_paths), len(new_paths),
         )
 
-        for blob_path in new_paths:
-            self.process_blob(blob_path)
+        if not new_paths:
+            return
+
+        self.process_batch(new_paths)
 
     def start_continuous_run(self, interval: int = 60) -> None:
         logger.info("Démarrage du service ETL")
