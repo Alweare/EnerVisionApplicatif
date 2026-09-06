@@ -30,6 +30,16 @@ async def poll_once(site_id: str) -> None:
     )
 
 
+async def poll_alerts_once() -> None:
+    response = await mock_api.get_alerts_raw()
+    response.raise_for_status()
+
+    blob_name = await blob_storage.archive_alerts_raw(response.text)
+
+    alerts = response.json()
+    logger.info("%d alerte(s) archivée(s) -> %s", len(alerts), blob_name)
+
+
 async def poll_all_sites() -> None:
     """Un cycle complet : découvre les sites connus, puis poll+archive chacun."""
     site_ids = await mock_api.list_site_ids()
@@ -46,5 +56,10 @@ async def poll_loop() -> None:
             await poll_all_sites()
         except Exception:
             logger.exception("Erreur pendant le cycle de polling")
+
+        try:
+            await poll_alerts_once()
+        except Exception:
+            logger.exception("Erreur pendant le polling des alertes")
 
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
