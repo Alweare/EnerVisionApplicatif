@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.api.controller.measurement import router as measurement_router
 from core.api.controller.site import router as site_router
+from core.api.routes import router as auth_router
 
 app = FastAPI(
     title="EnerVision API",
@@ -29,3 +30,4 @@ app.add_middleware(
 
 app.include_router(site_router)
 app.include_router(measurement_router)
+app.include_router(auth_router)

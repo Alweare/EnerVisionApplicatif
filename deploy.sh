@@ -21,7 +21,7 @@ if [[ -z "${IMAGE:-}" ]]; then
 fi
 
 case "$SERVICE" in
-    etl|consumption|prediction|recommandation|health|authentication|core|frontend)
+    etl|health|core|workeringestion|frontend)
         ;;
     *)
         error "Service non autorisé : $SERVICE"
@@ -50,33 +50,11 @@ docker rm -f "$SERVICE" 2>/dev/null || true
 
 log "Démarrage du nouveau conteneur..."
 
-case "$SERVICE" in
-
-    etl)
-        docker run -d \
-            --name etl \
-            --restart unless-stopped \
-            --network g3_default \
-            "$IMAGE"
-        ;;
-
-    health)
-        docker run -d \
-            --name health \
-            --restart unless-stopped \
-            --network g3_default \
-            -p 8000:8000 \
-            "$IMAGE"
-        ;;
-
-    *)
-        docker run -d \
-            --name "$SERVICE" \
-            --restart unless-stopped \
-            --network g3_default \
-            "$IMAGE"
-        ;;
-esac
+docker run -d \
+    --name "$SERVICE" \
+    --restart unless-stopped \
+    --network g3_default \
+    "$IMAGE"
 
 sleep 3
 

@@ -5,13 +5,8 @@ services:
       dockerfile: backend/core/Dockerfile
     networks:
       - enervision_network
-    ports:
-      - "8000:8000"
     env_file:
       - .env
-    secrets:
-      - db_password
-      - keycloak_client_secret
 
     volumes:
       - ./backend:/backend
@@ -27,10 +22,14 @@ services:
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
     secrets:
       - keycloak_client_secret
-    depends_on:
-      - keycloak
 
+  # Keycloak "prod-style" (buildé, adossé à keycloak-db) : jamais démarré par
+  # défaut (ni en local, ni par un `docker compose up -d` nu). Nécessite
+  # `--profile prod` explicitement — évite la collision avec le Keycloak
+  # local autonome de docker-compose-keycloak.yaml (même nom de conteneur,
+  # même port 8080).
   keycloak:
+    profiles: ["prod"]
     build:
       context: .
       dockerfile: backend/authentication/Dockerfile
@@ -57,6 +56,7 @@ services:
         condition: service_healthy
 
   keycloak-db:
+    profiles: ["prod"]
     image: postgres:16-alpine
     networks:
       - enervision_network
@@ -104,27 +104,6 @@ services:
       dockerfile: backend/health/Dockerfile
     networks:
       - enervision_network
-    ports:
-      - "8002:8000"
-  etl:
-    networks:
-      - enervision_network
-    build:
-      context: .
-      dockerfile: backend/etl/Dockerfile
-
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_APP_USER: ${POSTGRES_APP_USER}
-      POSTGRES_APP_PWD: ${POSTGRES_APP_PWD}
-      AZURE_STORAGE_ACCOUNT: ${AZURE_STORAGE_ACCOUNT}
-      AZURE_STORAGE_CONTAINER_NAME: ${AZURE_STORAGE_CONTAINER_NAME}
-      AZURE_SAS_ETL: ${AZURE_SAS_ETL}
-
-    volumes:
-      - ./backend/etl:/backend/etl
-
-    command: python -m etl.main
 
   etl:
     networks:
@@ -220,8 +199,10 @@ secrets:
     file: ./secrets/db_password
 
   keycloak_client_secret:
-    file: ./secrets/keyCloakSecrets/keycloak_client_secret
+    file: ./secrets/keycloak_client_secret
 
-networks:
-  enervision_network:
-    external: true
+  keycloak_frontend_client_secret:
+    file: ./secrets/keycloak_frontend_client_secret
+
+  keycloak_db_password:
+    file: ./secrets/keycloak_db_password

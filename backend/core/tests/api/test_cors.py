@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
-from core.database import get_db
+from shared.database import get_db
 from main import app
 
 client = TestClient(app)

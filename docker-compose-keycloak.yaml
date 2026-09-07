@@ -8,7 +8,12 @@
 # Le realm "enervision" (clients + utilisateur de test) est importé
 # automatiquement à chaque démarrage depuis keycloak/realm-export.json.
 services:
-  keycloak:
+  # Nommé différemment du service "keycloak" (buildé, profile prod) de
+  # docker-compose.yaml : même nom de service = fusion de champs par docker
+  # compose (pas de remplacement), ce qui réintroduirait le build + la
+  # dépendance à keycloak-db ici. container_name règle la résolution DNS
+  # ("keycloak" reste joignable par les autres conteneurs).
+  keycloak-local:
     image: quay.io/keycloak/keycloak:26.7.3
     container_name: keycloak
     command: start-dev --import-realm
@@ -16,13 +21,6 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HTTP_ENABLED: "true"
-      # Fixe l'URL publique (navigateur) : c'est celle-ci que Keycloak annonce
-      # comme "issuer" et comme authorization_endpoint. hostname-backchannel-dynamic
-      # laisse en revanche les endpoints serveur-à-serveur (token, JWKS, userinfo)
-      # se résoudre sur l'URL réellement utilisée pour joindre Keycloak — donc
-      # http://keycloak:8080 pour le frontend et backend/core, qui sont dans le
-      # même réseau Docker. Aucun des deux ne voit ou n'utilise "localhost"
-      # depuis l'intérieur d'un conteneur.
       KC_HOSTNAME: http://localhost:8080
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_HEALTH_ENABLED: "true"

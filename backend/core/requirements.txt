@@ -6,3 +6,4 @@ httpx
 sqlalchemy
 psycopg2-binary
 azure-storage-blob
+PyJWT[crypto]

@@ -1,0 +1,48 @@
+services:
+  postgres:
+    networks:
+      - enervision_network
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: always
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PWD}
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  migration:
+    networks:
+      - enervision_network
+    container_name: migration
+    build: db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PYWAY_TYPE: postgres
+      PYWAY_TABLE: public.pyway
+      PYWAY_DATABASE_USERNAME: ${POSTGRES_USER}
+      PYWAY_DATABASE_PASSWORD: ${POSTGRES_PWD}
+      PYWAY_DATABASE_HOST: postgres
+      PYWAY_DATABASE_PORT: 5432
+      PYWAY_DATABASE_NAME: ${POSTGRES_DB}
+      PYWAY_DATABASE_MIGRATION_DIR: migrations
+      APP_DB_USER: ${POSTGRES_APP_USER}
+      APP_DB_PASSWORD: ${POSTGRES_APP_PWD}
+
+volumes:
+  postgresql_data:
+
+networks:
+  enervision_network:
+    external: true

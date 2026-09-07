@@ -6,11 +6,11 @@ tls:
 http:
   routers:
 
-    backend:
+    core:
       rule: "Host(`api.enervisiong3.local`)"
       entryPoints:
         - websecure
-      service: backend
+      service: core
       tls: {}
 
     grafana:
@@ -22,10 +22,10 @@ http:
 
   services:
 
-    backend:
+    core:
       loadBalancer:
         servers:
-          - url: "http://backend:8000"
+          - url: "http://core:8000"
 
     grafana:
       loadBalancer:
