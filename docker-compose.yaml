@@ -113,6 +113,30 @@ services:
 
     command: python -m workeringestion.main
 
+  core:
+    networks:
+      - enervision_network
+    build:
+      context: .
+      dockerfile: backend/core/Dockerfile
+
+    ports:
+      - "8002:8000"
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER}
+      POSTGRES_APP_PWD: ${POSTGRES_APP_PWD}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+
+    volumes:
+      - ./backend/core:/backend/core
+      - ./backend/shared:/backend/shared
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   etl:
     networks:
       - enervision_network

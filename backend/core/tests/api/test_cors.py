@@ -7,7 +7,7 @@ le défaut défini dans main.py (localhost:8501 / 127.0.0.1:8501).
 import pytest
 from fastapi.testclient import TestClient
 
-from main import app
+from core.main import app
 
 client = TestClient(app)
 
