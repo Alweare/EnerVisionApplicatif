@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from core.api.schemas import SiteRead
 from core.api.service.site_service import SiteNotFoundError, SiteService
-from core.database import get_db
+from shared.database import get_db
 from core.schemas import ErrorDetail
 
 router = APIRouter(prefix="/api/v1/backend/sites", tags=["Sites"])

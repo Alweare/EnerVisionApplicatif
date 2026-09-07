@@ -51,7 +51,6 @@ jobs:
         with:
           filters: |
             backend/authentication: 'backend/authentication/**'
-            backend/consumption: 'backend/consumption/**'
             backend/etl: 'backend/etl/**'
             backend/prediction: 'backend/prediction/**'
             backend/recommandation: 'backend/recommandation/**'
@@ -146,6 +145,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ -z "$(find "$SERVICE_DIR" -name '*.py' -print -quit)" ]; then
+            echo "::notice::Aucun fichier Python dans $SERVICE_DIR (ex. image Keycloak) — tests ignorés."
+            exit 0
+          fi
+
           TEST_DIR="$SERVICE_DIR/tests"
 
           if [ ! -d "$TEST_DIR" ]; then
@@ -223,6 +227,9 @@ jobs:
           TRIVY_SCANNERS: "vuln"
           TRIVY_SKIP_VERSION_CHECK: "true"
           TRIVY_DISABLE_VEX_NOTICE: "true"
+          # CVE ignorées au cas par cas (jamais en bloc) — voir .trivyignore
+          # à la racine pour la justification de chacune.
+          TRIVY_IGNOREFILE: ".trivyignore"
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}:${{ github.sha }}
           format: table

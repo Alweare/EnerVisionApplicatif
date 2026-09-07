@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+pydantic-settings
+python-dotenv
+pytest
+pytest-cov
+httpx2
+httpx
+msgpack>=1.2.1
+sqlalchemy
+psycopg2-binary
+pytest-asyncio
+azure-storage-blob
+aiohttp

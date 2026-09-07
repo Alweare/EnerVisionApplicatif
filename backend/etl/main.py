@@ -2,7 +2,7 @@
 import logging
 import os
 
-from etl.database import SessionLocal
+from shared.database import SessionLocal
 from etl.service.etl_service import ETLService
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")

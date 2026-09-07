@@ -18,7 +18,7 @@ FIELDS_TO_FILL = [
     "power_factor", "temperature_celsius", "humidity_percent",
 ]
 
-BLOB_PREFIX = "brute_data/"
+BLOB_PREFIX = "measures/"
 DEFAULT_LOOKBACK_MINUTES = 3
 
 
@@ -49,14 +49,27 @@ class ETLService:
 
     # --- Extraction -------------------------------------------------------
 
-    def list_recent_blob_paths(self, lookback_minutes: int = None) -> list[str]:
+    def _day_prefixes(self, cutoff: datetime, now: datetime) -> list[str]:
+        """Préfixes des jours couverts par la fenêtre. Un seul en général,
+        deux quand la fenêtre enjambe minuit."""
+        prefixes = []
+        day = cutoff.date()
+        while day <= now.date():
+            prefixes.append(f"{BLOB_PREFIX}{day:%Y/%m/%d}/")
+            day += timedelta(days=1)
+        return prefixes
 
+    def list_recent_blob_paths(self, lookback_minutes: int = None) -> list[str]:
+        """Ne liste que les jours de la fenêtre, pas tout le conteneur : le
+        coût ne dépend donc plus de l'ancienneté du conteneur."""
         minutes = self.lookback_minutes if lookback_minutes is None else lookback_minutes
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(minutes=minutes)
 
         recent = [
             blob
-            for blob in self.container_client.list_blobs(name_starts_with=BLOB_PREFIX)
+            for prefix in self._day_prefixes(cutoff, now)
+            for blob in self.container_client.list_blobs(name_starts_with=prefix)
             if blob.last_modified >= cutoff
         ]
         recent.sort(key=lambda blob: blob.last_modified)
@@ -133,7 +146,16 @@ class ETLService:
                 )
                 continue
 
-            self.load(self.transform(site_id, reading))
+            measurement = self.transform(site_id, reading)
+
+            # Filet de sécurité : si le blob a déjà été traité (traçabilité
+            # perdue, blob redéposé), la mesure existe déjà en base.
+            if self.measurement_service.measurement_exists(
+                measurement.site_id, measurement.measurement_date
+            ):
+                continue
+
+            self.load(measurement)
             loaded += 1
 
         self.file_tracking_service.mark_processed(blob_path)

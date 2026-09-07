@@ -1,0 +1,6 @@
+# CVE-2025-59250 : driver JDBC SQL Server (com.microsoft.sqlserver:mssql-jdbc)
+# bundlé par l'image officielle Keycloak. On ne se connecte jamais à SQL
+# Server (KC_DB=postgres) : le code vulnérable n'est jamais exécuté.
+# Pas de correctif possible sans reconstruire Keycloak avec `kc.sh build`
+# (bascule start-dev -> start, prévue avec le chantier TLS/hostname).
+CVE-2025-59250
