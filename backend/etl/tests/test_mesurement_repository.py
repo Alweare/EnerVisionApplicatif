@@ -24,13 +24,13 @@ def test_add_stages_the_measurement_without_committing():
     assert result is measurement
 
 
-def test_get_last_measurement_returns_first_row():
+def test_get_last_measurements_returns_the_rows_limited():
     mock_session = MagicMock()
     repo = MeasurementRepository(mock_session)
-    expected = object()
-    mock_session.query().filter().order_by().first.return_value = expected
+    expected = [object(), object()]
+    mock_session.query().filter().order_by().limit().all.return_value = expected
 
-    result = repo.get_last_measurement("SITE001")
+    result = repo.get_last_measurements("SITE001", 3)
 
     assert result is expected
 

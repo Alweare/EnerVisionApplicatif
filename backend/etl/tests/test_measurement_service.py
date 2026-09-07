@@ -61,9 +61,9 @@ def test_add_measurement_delegates_to_repository(measurement_service, cleaned_re
     assert added.consumption_kw == 87.34
 
 
-def test_get_last_measurement_delegates_to_repository(measurement_service):
+def test_get_last_measurements_delegates_to_repository(measurement_service):
     expected = Mock()
-    measurement_service.repository.get_last_measurement.return_value = expected
+    measurement_service.repository.get_last_measurements.return_value = expected
 
-    assert measurement_service.get_last_measurement("SITE001") is expected
-    measurement_service.repository.get_last_measurement.assert_called_once_with("SITE001")
+    assert measurement_service.get_last_measurements("SITE001", 3) is expected
+    measurement_service.repository.get_last_measurements.assert_called_once_with("SITE001", 3)

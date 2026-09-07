@@ -18,8 +18,23 @@ FIELDS_TO_FILL = [
     "power_factor", "temperature_celsius", "humidity_percent",
 ]
 
+DEFAULT_FORWARD_FILL_DEPTH = 3
+
 BLOB_PREFIX = "measures/"
-DEFAULT_LOOKBACK_MINUTES = 3
+DEFAULT_LOOKBACK_MINUTES = 24 * 60
+
+
+def cycles_since_real_value(field: str, recents: list) -> int:
+    cycles = 0
+    for measurement in recents:
+        is_real = (
+            getattr(measurement, field) is not None
+            and field not in (measurement.forward_filled_fields or [])
+        )
+        if is_real:
+            break
+        cycles += 1
+    return cycles
 
 
 class ETLService:
@@ -38,6 +53,9 @@ class ETLService:
         )
         self.lookback_minutes = int(
             os.getenv("ETL_LOOKBACK_MINUTES", DEFAULT_LOOKBACK_MINUTES)
+        )
+        self.forward_fill_depth = int(
+            os.getenv("ETL_FORWARD_FILL_DEPTH", DEFAULT_FORWARD_FILL_DEPTH)
         )
 
         self.blob_service_client = BlobServiceClient(
@@ -90,7 +108,14 @@ class ETLService:
     # --- Transformation ---------------------------------------------------
 
     def forward_fill(self, site_id: str, reading: dict) -> dict:
+        """Comble les champs nuls avec la valeur réelle la plus récente.
+
+        Une valeur n'est jamais recopiée plus de forward_fill_depth fois de
+        suite : passé ce seuil le champ reste nul, faute de quoi une panne
+        durable prolongerait la dernière mesure indéfiniment.
+        """
         cleaned = dict(reading)
+        cleaned["forward_filled_fields"] = []
         missing_fields = [f for f in FIELDS_TO_FILL if cleaned.get(f) is None]
 
         if not missing_fields:
@@ -98,19 +123,47 @@ class ETLService:
 
         logger.info(f"[{site_id}] Champs manquants détectés : {missing_fields}")
 
-        last = self.measurement_service.get_last_measurement(site_id)
+        recents = self.measurement_service.get_last_measurements(
+            site_id, self.forward_fill_depth
+        )
 
-        if last is None:
+        if not recents:
             logger.warning(
                 f"[{site_id}] Aucune mesure précédente disponible — "
                 f"les champs {missing_fields} restent null."
             )
             return cleaned
 
+        filled, exhausted, still_null = [], [], []
         for field in missing_fields:
-            cleaned[field] = getattr(last, field)
+            if cycles_since_real_value(field, recents) >= self.forward_fill_depth:
+                exhausted.append(field)
+                continue
 
-        logger.info(f"[{site_id}] Forward-fill appliqué sur : {missing_fields}")
+            value = next(
+                (v for v in (getattr(m, field) for m in recents) if v is not None),
+                None,
+            )
+            if value is None:
+                still_null.append(field)
+            else:
+                cleaned[field] = value
+                filled.append(field)
+
+        cleaned["forward_filled_fields"] = filled
+
+        if filled:
+            logger.info(f"[{site_id}] Forward-fill appliqué sur : {filled}")
+        if exhausted:
+            logger.warning(
+                f"[{site_id}] Déjà {self.forward_fill_depth} recopies consécutives — "
+                f"restent null : {exhausted}"
+            )
+        if still_null:
+            logger.warning(
+                f"[{site_id}] Aucune valeur dans les {self.forward_fill_depth} derniers "
+                f"enregistrements — restent null : {still_null}"
+            )
         return cleaned
 
     def transform(self, site_id: str, reading: dict) -> Measurement:

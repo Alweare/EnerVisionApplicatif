@@ -12,13 +12,14 @@ class MeasurementRepository:
         self.db.flush()
         return measurement
 
-# Renvoie la dernière mesure connue pour ce site
-    def get_last_measurement(self, site_id: str) -> Measurement | None:
+# Renvoie les `limit` dernières mesures du site, la plus récente d'abord.
+    def get_last_measurements(self, site_id: str, limit: int) -> list[Measurement]:
         return (
             self.db.query(Measurement)
             .filter(Measurement.site_id == site_id)
             .order_by(Measurement.measurement_date.desc())
-            .first()
+            .limit(limit)
+            .all()
         )
 
     def exists(self, site_id: str, measurement_date) -> bool:
