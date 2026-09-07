@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Text, TIMESTAMP, text
-from core.base import Base
+from shared.base import Base
 
 class EtlFileTracking(Base):
     __tablename__ = "etl_file_tracking"

@@ -11,16 +11,16 @@ def test_measurement_repository_save():
     assert repo.db == mock_session
 
 
-def test_save_adds_commits_and_refreshes():
+def test_add_stages_the_measurement_without_committing():
     mock_session = MagicMock()
     repo = MeasurementRepository(mock_session)
     measurement = object()
 
-    result = repo.save(measurement)
+    result = repo.add(measurement)
 
     mock_session.add.assert_called_once_with(measurement)
-    mock_session.commit.assert_called_once()
-    mock_session.refresh.assert_called_once_with(measurement)
+    mock_session.commit.assert_not_called()
+    mock_session.flush.assert_called_once()
     assert result is measurement
 
 
