@@ -1,0 +1,33 @@
+tls:
+  certificates:
+    - certFile: /certs/cert.pem
+      keyFile: /certs/key.pem
+
+http:
+  routers:
+
+    backend:
+      rule: "Host(`api.enervisiong3.local`)"
+      entryPoints:
+        - websecure
+      service: backend
+      tls: {}
+
+    grafana:
+      rule: "Host(`grafana.enervisiong3.local`)"
+      entryPoints:
+        - websecure
+      service: grafana
+      tls: {}
+
+  services:
+
+    backend:
+      loadBalancer:
+        servers:
+          - url: "http://backend:8000"
+
+    grafana:
+      loadBalancer:
+        servers:
+          - url: "http://grafana:3000"
