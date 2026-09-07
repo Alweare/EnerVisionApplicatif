@@ -53,7 +53,6 @@ jobs:
             backend/etl: 'backend/etl/**'
             backend/prediction: 'backend/prediction/**'
             backend/recommandation: 'backend/recommandation/**'
-            backend/health: 'backend/health/**'
             backend/core: 'backend/core/**'
             backend/workeringestion: 'backend/workeringestion/**'
             frontend: 'frontend/**'

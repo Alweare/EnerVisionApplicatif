@@ -11,7 +11,7 @@ from core.api.service.measurement_service import (
     SiteNotFoundError,
 )
 from shared.database import get_db
-from main import app
+from core.main import app
 
 client = TestClient(app)
 

@@ -1,0 +1,81 @@
+services:
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    container_name: prometheus
+    restart: unless-stopped
+
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+    networks:
+      - observability
+      - traefik_network
+
+
+  # Route exposée via traefik/dynamic.yml (grafana.enervisiong3.prod ->
+  # http://grafana:3000), pas via labels Docker : Traefik ne tourne qu'avec
+  # le provider fichier (--providers.file), pas le provider Docker — des
+  # labels traefik.* ici seraient silencieusement ignorés.
+  grafana:
+    image: grafana/grafana:13.2.0
+    container_name: grafana
+    restart: unless-stopped
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+    networks:
+      - observability
+      - traefik_network
+
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    container_name: node-exporter
+    restart: unless-stopped
+
+    command:
+      - "--path.rootfs=/host"
+
+    volumes:
+      - "/:/host:ro,rslave"
+
+    networks:
+      - observability
+
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    restart: unless-stopped
+
+    privileged: true
+
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+
+    networks:
+      - observability
+
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+
+networks:
+  observability:
+    driver: bridge
+
+  traefik_network:
+    external: true
+    name: g3_default

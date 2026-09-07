@@ -98,12 +98,32 @@ services:
       AZURE_STORAGE_CONTAINER_NAME: ${AZURE_STORAGE_CONTAINER_NAME}
       AZURE_SAS_INGESTION: ${AZURE_SAS_INGESTION}
 
-  health:
-    build:
-      context: .
-      dockerfile: backend/health/Dockerfile
+  core:
     networks:
       - enervision_network
+    build:
+      context: .
+      dockerfile: backend/core/Dockerfile
+
+    ports:
+      - "8002:8000"
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER}
+      POSTGRES_APP_PWD: ${POSTGRES_APP_PWD}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      KEYCLOAK_URL: ${KEYCLOAK_URL}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
+
+    volumes:
+      - ./backend/core:/backend/core
+      - ./backend/shared:/backend/shared
+
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   etl:
     networks:
@@ -198,9 +218,6 @@ networks:
     external: true
 
 secrets:
-  db_password:
-    file: ./secrets/db_password
-
   keycloak_client_secret:
     file: ./secrets/keycloak_client_secret
 

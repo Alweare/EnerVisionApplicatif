@@ -1,6 +1,7 @@
-from fastapi import APIRouter, FastAPI
-#testez
+from fastapi import APIRouter
+
 router = APIRouter()
+
 
 @router.get(
     "/health",
@@ -8,5 +9,5 @@ router = APIRouter()
     summary="Vérifie l'état de l'API",
     description="Endpoint de health check, utilisé par Docker pour vérifier que le service répond.",
 )
-async def health():
-    return {"status": "tests"}
+async def health() -> dict:
+    return {"status": "ok"}
