@@ -12,3 +12,4 @@ psycopg2-binary
 pytest-asyncio
 azure-storage-blob
 aiohttp
+mlflow==3.16.0

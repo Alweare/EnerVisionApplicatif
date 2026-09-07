@@ -40,6 +40,31 @@ services:
       APP_DB_USER: ${POSTGRES_APP_USER}
       APP_DB_PASSWORD: ${POSTGRES_APP_PWD}
 
+  mlflow:
+    build:
+      context: ./mlflow
+    container_name: mlflow
+    networks:
+      - enervision_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    volumes:
+      - /opt/enervisionG3/data/mlflow-artifacts:/mlflow-artifacts
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://${POSTGRES_USER_MLFLOW}:${POSTGRES_PASSWORD_MLFLOW}@postgres:5432/${POSTGRES_DB}
+      --default-artifact-root /mlflow-artifacts
+      --host 0.0.0.0
+      --port 5000
+
 volumes:
   postgresql_data:
 
