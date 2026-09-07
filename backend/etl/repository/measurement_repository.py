@@ -19,3 +19,14 @@ class MeasurementRepository:
             .order_by(Measurement.measurement_date.desc())
             .first()
         )
+
+    def exists(self, site_id: str, measurement_date) -> bool:
+        return (
+            self.db.query(Measurement.measurement_id)
+            .filter(
+                Measurement.site_id == site_id,
+                Measurement.measurement_date == measurement_date,
+            )
+            .first()
+            is not None
+        )

@@ -1,6 +1,5 @@
 FROM python:3.12.14-slim-trixie
 
-WORKDIR /backend/etl
 
 COPY backend/etl/requirements.txt .
 

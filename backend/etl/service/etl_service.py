@@ -32,7 +32,7 @@ class ETLService:
 
     def extract_all(self, limit: int = None) -> list[dict]:
         readings = []
-        container_name = os.getenv("AZURE_CONTAINER_NAME")
+        container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME")
         container_client = self.blob_service_client.get_container_client(container_name)
         prefix = "brute_data/"
 
@@ -98,6 +98,12 @@ class ETLService:
 
             try:
                 measurement = self.transform(site_id, reading)
+
+                if self.measurement_service.measurement_exists(
+                    measurement.site_id, measurement.measurement_date
+                ):
+                    continue
+
                 self.load(measurement)
             except Exception as e:
                 logger.error(f"[{site_id}] Erreur lors du traitement de la mesure : {e}")
