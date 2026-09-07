@@ -1,7 +1,7 @@
 {
   "realm": "enervision",
   "enabled": true,
-  "sslRequired": "none",
+  "sslRequired": "external",
   "registrationAllowed": false,
   "roles": {
     "realm": [
@@ -63,6 +63,32 @@
         { "type": "password", "value": "demo-user-password", "temporary": false }
       ],
       "realmRoles": ["user"]
+    },
+    {
+      "username": "test",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "test@test.test",
+      "firstName": "test",
+      "lastName": "test",
+      "requiredActions": [],
+      "credentials": [
+        { "type": "password", "value": "test", "temporary": false }
+      ],
+      "realmRoles": ["user"]
+    },
+    {
+      "username": "admin",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "testadmin@test.test",
+      "firstName": "test",
+      "lastName": "admin",
+      "requiredActions": [],
+      "credentials": [
+        { "type": "password", "value": "admin", "temporary": false }
+      ],
+      "realmRoles": ["admin", "user"]
     }
   ]
 }
