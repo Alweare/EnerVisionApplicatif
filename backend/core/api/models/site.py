@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Float
-from core.base import Base
+from shared.base import Base
 
 class Site(Base):
     __tablename__ = "site"

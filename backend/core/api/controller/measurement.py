@@ -7,7 +7,7 @@ from core.api.service.measurement_service import (
     MeasurementService,
     SiteNotFoundError,
 )
-from core.database import get_db
+from shared.database import get_db
 from core.schemas import ErrorDetail
 
 router = APIRouter(prefix="/api/v1/backend/sites", tags=["Measurements"])
