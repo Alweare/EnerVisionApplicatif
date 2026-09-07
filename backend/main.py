@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.api.controller.measurement import router as measurement_router
 from core.api.controller.site import router as site_router
+from core.api.routes import router as core_router
 from health.api.routes import router as health_router
 
 app = FastAPI(
@@ -34,3 +35,4 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(site_router)
 app.include_router(measurement_router)
+app.include_router(core_router)

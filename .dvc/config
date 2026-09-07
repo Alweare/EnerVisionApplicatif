@@ -1,0 +1,4 @@
+[core]
+    remote = ml-models-store
+['remote "ml-models-store"']
+    url = ssh://enervisionG3@10.105.200.43/data/dvc_store
