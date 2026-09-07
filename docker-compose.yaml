@@ -155,7 +155,29 @@ services:
     volumes:
       - ./backend/etl:/backend/etl
 
-    command: python -m etl.main  
+    command: python -m etl.main
+
+  prediction:
+    networks:
+      - enervision_network
+    build:
+      context: .
+      dockerfile: backend/prediction/Dockerfile
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER}
+      POSTGRES_APP_PWD: ${POSTGRES_APP_PWD}
+
+    volumes:
+      - ./backend/prediction:/backend/prediction
+      - ./backend/shared:/backend/shared
+
+    command: python -m prediction.main
+
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   postgres:
     networks:

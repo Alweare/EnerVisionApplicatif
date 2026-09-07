@@ -9,6 +9,8 @@ httpx
 msgpack>=1.2.1
 sqlalchemy
 psycopg2-binary
+pandas
 pytest-asyncio
 azure-storage-blob
 aiohttp
+PyJWT[crypto]
