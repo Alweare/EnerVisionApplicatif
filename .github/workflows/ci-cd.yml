@@ -51,7 +51,6 @@ jobs:
         with:
           filters: |
             backend/authentication: 'backend/authentication/**'
-            backend/consumption: 'backend/consumption/**'
             backend/etl: 'backend/etl/**'
             backend/prediction: 'backend/prediction/**'
             backend/recommandation: 'backend/recommandation/**'

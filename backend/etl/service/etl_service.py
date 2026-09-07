@@ -83,7 +83,7 @@ class ETLService:
         self.measurement_service.save_measurement(measurement)
 
     def run(self, limit: int = None) -> None:
-        for reading in self.extract_all(limit=limit):
+        for reading in self.extract_all(limit=15):
             site_id = reading.get("site_id")
 
             if not site_id:
