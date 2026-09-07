@@ -13,6 +13,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+DAYS_BACK = int(os.getenv("SEED_DAYS_BACK"))
 
 class HistoricalDataSeeder:
     def __init__(self, blob_service_client: BlobServiceClient, container_name: str):
@@ -20,10 +21,6 @@ class HistoricalDataSeeder:
         self.container_name = container_name
 
     def generate_blob_name(self, ref_date: datetime) -> str:
-        """
-        Génère un nom de blob global pour la journée sous la forme :
-        measures/YYYY/MM/DD/uuid.json
-        """
         year = ref_date.strftime("%Y")
         month = ref_date.strftime("%m")
         day = ref_date.strftime("%d")
@@ -31,7 +28,6 @@ class HistoricalDataSeeder:
         return f"measures/{year}/{month}/{day}/{uuid.uuid4()}.json"
 
     async def archive_raw(self, content: str, blob_name: str):
-        """Méthode locale pour pousser sur Azure."""
         container_client = self.blob_service_client.get_container_client(self.container_name)
         blob_client = container_client.get_blob_client(blob_name)
         await blob_client.upload_blob(content, overwrite=True)
@@ -79,9 +75,9 @@ class HistoricalDataSeeder:
             logger.error("Erreur inattendue : %s", exc)
             return 0
 
-    async def run(self, days_back: int = 30, chunk_hours: int = 24):
+    async def run(self, days_back: int = DAYS_BACK, chunk_hours: int = 24):
         """
-        Parcourt les 30 derniers jours par tranche de 24h et extrait
+        Parcourt les X (DAYS_BACK) derniers jours par tranche de 24h et extrait
         tous les sites en un seul fichier brut par intervalle.
         """
         now = datetime.now(timezone.utc)
@@ -126,7 +122,7 @@ async def main():
             blob_service_client=blob_service_client,
             container_name=container_name
         )
-        await seeder.run(days_back=30, chunk_hours=24)
+        await seeder.run(days_back=DAYS_BACK, chunk_hours=24)
 
 
 if __name__ == "__main__":

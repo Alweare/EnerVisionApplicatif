@@ -7,14 +7,15 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+CLEAN_PREFIX = os.getenv("AZURE_CLEAN_PREFIX")
 
 class AzureBlobCleaner:
     def __init__(self, container_name: str | None = None):
         account_name = os.getenv("AZURE_STORAGE_ACCOUNT")
-        sas_token = os.getenv("AZURE_SAS_DELETE")
+        sas_token = os.getenv("AZURE_SAS_HISTORY")
 
         if not account_name or not sas_token:
-            raise ValueError("Les variables AZURE_STORAGE_ACCOUNT et AZURE_SAS_DELETE doivent être définies.")
+            raise ValueError("Les variables AZURE_STORAGE_ACCOUNT et AZURE_SAS_HISTORY doivent être définies.")
 
         account_url = f"https://{account_name}.blob.core.windows.net"
         self.blob_service_client = BlobServiceClient(
@@ -23,7 +24,7 @@ class AzureBlobCleaner:
         )
         self.container_name = container_name or os.getenv("AZURE_CONTAINER_NAME")
 
-    def clean_prefix(self, prefix: str = "brute_data/", dry_run: bool = True):
+    def clean_prefix(self, prefix: str = CLEAN_PREFIX, dry_run: bool = True):
         """
         Supprime les blobs sous un préfixe donné.
         :param prefix: Le sous-dossier / préfixe à nettoyer.
@@ -51,4 +52,4 @@ class AzureBlobCleaner:
 if __name__ == "__main__":
     cleaner = AzureBlobCleaner()
 
-    cleaner.clean_prefix(prefix="brute_data/", dry_run=False)
+    cleaner.clean_prefix(CLEAN_PREFIX, dry_run=False)
