@@ -15,8 +15,9 @@ from services.measurement_service import (
 BACKEND_URL = "http://backend:8000"
 
 
-def _mock_response(json_data=None, *, ok=True):
+def _mock_response(json_data=None, *, ok=True, status_code=200):
     response = Mock()
+    response.status_code = status_code
     response.json.return_value = json_data
     if ok:
         response.raise_for_status.return_value = None
@@ -45,8 +46,15 @@ def test_get_current_measurement_calls_expected_url_and_returns_json(mock_get):
 
 
 @patch("services.measurement_service.requests.get")
-def test_get_current_measurement_raises_when_no_measurement(mock_get):
-    mock_get.return_value = _mock_response(ok=False)
+def test_get_current_measurement_returns_none_when_no_measurement(mock_get):
+    mock_get.return_value = _mock_response(status_code=404)
+
+    assert get_current_measurement("SITE001") is None
+
+
+@patch("services.measurement_service.requests.get")
+def test_get_current_measurement_raises_on_server_error(mock_get):
+    mock_get.return_value = _mock_response(ok=False, status_code=500)
 
     with pytest.raises(requests.HTTPError):
         get_current_measurement("SITE001")

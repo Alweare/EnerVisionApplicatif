@@ -149,6 +149,8 @@ activemq-data/
 
 # Environments
 .env
+.env.local
+.env.production
 .envrc
 .venv
 env/
@@ -219,6 +221,9 @@ __marimo__/
 
 # Docker secrets (contenu réel des secrets — jamais commité)
 /secrets/
+
+# Certificats TLS locaux (Traefik) — générés par chaque développeur, jamais commités
+/certs/
 
 .idea
 .env

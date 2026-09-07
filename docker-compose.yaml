@@ -1,26 +1,12 @@
 services:
-  # traefik:
-  #   image: traefik:v3.7
-  #   container_name: traefik
-  #   cap_add:
-  #     - NET_BIND_SERVICE
-  #   command:
-  #     - --entrypoints.websecure.address=:443
-  #     - --providers.file.filename=/etc/traefik/dynamic.yml
-  #   ports:
-  #     - 443:443
-  #   volumes:
-  #     - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
-  #     - ./certs:/certs:ro
   backend:
-    networks:
-      - enervision_network
     build:
       context: .
-      dockerfile: Dockerfile
-
-    ports:
-      - "8000:8000"
+      dockerfile: backend/core/Dockerfile
+    networks:
+      - enervision_network
+    env_file:
+      - .env
 
     volumes:
       - ./backend:/backend
@@ -36,10 +22,14 @@ services:
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
     secrets:
       - keycloak_client_secret
-    depends_on:
-      - keycloak
 
+  # Keycloak "prod-style" (buildé, adossé à keycloak-db) : jamais démarré par
+  # défaut (ni en local, ni par un `docker compose up -d` nu). Nécessite
+  # `--profile prod` explicitement — évite la collision avec le Keycloak
+  # local autonome de docker-compose-keycloak.yaml (même nom de conteneur,
+  # même port 8080).
   keycloak:
+    profiles: ["prod"]
     build:
       context: .
       dockerfile: backend/authentication/Dockerfile
@@ -66,6 +56,7 @@ services:
         condition: service_healthy
 
   keycloak-db:
+    profiles: ["prod"]
     image: postgres:16-alpine
     networks:
       - enervision_network
@@ -85,33 +76,34 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: frontend/Dockerfile
+      context: ./frontend
     networks:
       - enervision_network
     ports:
       - "8501:8501"
     environment:
-      BACKEND_URL: http://backend:8000
+      BACKEND_URL: ${BACKEND_URL}
     volumes:
-      - ./frontend:/frontend
+      - ./frontend/.streamlit/secrets.toml:/frontend/.streamlit/secrets.toml:ro
 
   worker-ingestion:
     build:
       context: .
       dockerfile: backend/workeringestion/Dockerfile
-
+    networks:
+      - enervision_network
     environment:
-      MOCK_API_URL: http://10.105.200.45:8000
+      MOCK_API_URL: ${MOCK_API_URL}
       AZURE_STORAGE_ACCOUNT: ${AZURE_STORAGE_ACCOUNT}
       AZURE_STORAGE_CONTAINER_NAME: ${AZURE_STORAGE_CONTAINER_NAME}
       AZURE_SAS_INGESTION: ${AZURE_SAS_INGESTION}
 
-    volumes:
-      - ./backend/core:/backend/core
-      - ./backend/workeringestion:/backend/workeringestion
-
-    command: python -m workeringestion.main
+  health:
+    build:
+      context: .
+      dockerfile: backend/health/Dockerfile
+    networks:
+      - enervision_network
 
   etl:
     networks:
@@ -204,16 +196,16 @@ volumes:
 networks:
   enervision_network:
     external: true
-    
+
 secrets:
   db_password:
     file: ./secrets/db_password
 
   keycloak_client_secret:
-    file: ./secrets/keyCloakSecrets/keycloak_client_secret
+    file: ./secrets/keycloak_client_secret
 
   keycloak_frontend_client_secret:
-    file: ./secrets/keyCloakSecrets/keycloak_frontend_client_secret
+    file: ./secrets/keycloak_frontend_client_secret
 
   keycloak_db_password:
-    file: ./secrets/keyCloakSecrets/keycloak_db_password
+    file: ./secrets/keycloak_db_password

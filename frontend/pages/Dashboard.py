@@ -33,6 +33,10 @@ selected_site = sites_by_id[selected_site_id]
 @st.fragment(run_every="60s")
 def show_current_measurement(site: dict) -> None:
     current = get_current_measurement(site["site_id"])
+    if current is None:
+        st.info("Aucune mesure disponible pour ce site.")
+        return
+
     data_quality = current.get("data_quality")
 
     with st.container(border=True):
