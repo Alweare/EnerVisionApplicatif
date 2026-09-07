@@ -1,6 +1,7 @@
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 
 from azure.core.exceptions import ResourceExistsError
 from azure.storage.blob.aio import ContainerClient
@@ -18,10 +19,12 @@ _container_client = ContainerClient.from_container_url(
     f"{AZURE_STORAGE_CONTAINER_NAME}?{AZURE_SAS_INGESTION}"
 )
 
+MEASURES_PREFIX = "measures/"
 
 async def archive_raw(raw_json: str) -> str:
-    """Écrit raw_json (texte brut, non reparsé) dans brute_data/."""
-    blob_name = f"brute_data/{uuid.uuid4()}.json"
+    """Écrit raw_json (texte brut, non reparsé) dans measures/AAAA/MM/JJ/."""
+    day = datetime.now(timezone.utc).strftime("%Y/%m/%d")
+    blob_name = f"{MEASURES_PREFIX}{day}/{uuid.uuid4()}.json"
     try:
         await _container_client.upload_blob(name=blob_name, data=raw_json, overwrite=False)
     except ResourceExistsError:

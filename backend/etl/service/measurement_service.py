@@ -21,14 +21,15 @@ class MeasurementService:
                 temperature_celsius=cleaned["temperature_celsius"],
                 humidity_percent=cleaned["humidity_percent"],
                 null_reason=cleaned["null_reasons"],
+                forward_filled_fields=cleaned.get("forward_filled_fields", []),
                 data_quality=cleaned["data_quality"],
         )
 
-    def save_measurement(self, measurement: Measurement) -> Measurement:
-        return self.repository.save(measurement)
+    def add_measurement(self, measurement: Measurement) -> Measurement:
+        return self.repository.add(measurement)
 
-    def get_last_measurement(self, site_id):
-        return self.repository.get_last_measurement(site_id)
+    def get_last_measurements(self, site_id: str, limit: int):
+        return self.repository.get_last_measurements(site_id, limit)
 
     def measurement_exists(self, site_id: str, measurement_date) -> bool:
         return self.repository.exists(site_id, measurement_date)

@@ -3,11 +3,14 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from etl.models.etl_file_tracking import EtlFileTracking
 from etl.service.etl_service import ETLService
 from etl.models.measurement import Measurement
 from etl.models.site import Site
 
 load_dotenv()
+
+LOOKBACK_MINUTES_TEST = 60 * 24 * 365
 
 
 def test_etl_integration():
@@ -35,19 +38,37 @@ def test_etl_integration():
 
         etl = ETLService(db)
 
-        # 2. Compter le nombre total de mesures avant le traitement
+        # 2. Compter mesures et fichiers tracés avant le traitement
         count_before = db.query(Measurement).count()
+        tracked_before = db.query(EtlFileTracking).count()
 
-        # 3. Lancer le traitement global
-        etl.run(limit=15)
+        # 3. Premier passage : les fichiers non encore tracés sont ingérés
+        etl.run(lookback_minutes=LOOKBACK_MINUTES_TEST)
 
-        # 4. Compter le nombre total de mesures après le traitement
         count_after = db.query(Measurement).count()
+        tracked_after = db.query(EtlFileTracking).count()
 
-        print(f"Total mesures avant : {count_before} | Total mesures après : {count_after}")
+        print(f"Total mesures avant : {count_before} | après : {count_after}")
+        print(f"Fichiers tracés avant : {tracked_before} | après : {tracked_after}")
 
-        # 5. Assertion
-        assert count_after > count_before, "Le test a échoué : aucune nouvelle donnée n'a été insérée en BDD."
+        assert tracked_after > tracked_before, (
+            "Le test a échoué : aucun fichier n'a été tracé, "
+            "le conteneur Azure est-il vide ?"
+        )
+        assert count_after > count_before, (
+            "Le test a échoué : aucune nouvelle donnée n'a été insérée en BDD."
+        )
+
+        # 4. Second passage : le dédoublonnage doit tout ignorer (idempotence)
+        etl.run(lookback_minutes=LOOKBACK_MINUTES_TEST)
+
+        assert db.query(Measurement).count() == count_after, (
+            "Le test a échoué : le second passage a réinséré des mesures."
+        )
+        assert db.query(EtlFileTracking).count() == tracked_after, (
+            "Le test a échoué : le second passage a retracé des fichiers."
+        )
+
         print("Test d'intégration global réussi avec succès !")
 
     finally:

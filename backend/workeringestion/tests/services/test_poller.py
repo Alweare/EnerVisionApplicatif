@@ -9,7 +9,7 @@ async def test_poll_once_archives_raw_json_before_any_parsing(mock_httpx, mock_b
 
     assert len(mock_blob) == 1
     upload = mock_blob[0]
-    assert upload["name"].startswith("brute_data/")
+    assert upload["name"].startswith("measures/")
     assert upload["overwrite"] is False
     archived = json.loads(upload["data"])
     assert archived["site_id"] == "SITE001"

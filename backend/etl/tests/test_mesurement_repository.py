@@ -11,26 +11,26 @@ def test_measurement_repository_save():
     assert repo.db == mock_session
 
 
-def test_save_adds_commits_and_refreshes():
+def test_add_stages_the_measurement_without_committing():
     mock_session = MagicMock()
     repo = MeasurementRepository(mock_session)
     measurement = object()
 
-    result = repo.save(measurement)
+    result = repo.add(measurement)
 
     mock_session.add.assert_called_once_with(measurement)
-    mock_session.commit.assert_called_once()
-    mock_session.refresh.assert_called_once_with(measurement)
+    mock_session.commit.assert_not_called()
+    mock_session.flush.assert_called_once()
     assert result is measurement
 
 
-def test_get_last_measurement_returns_first_row():
+def test_get_last_measurements_returns_the_rows_limited():
     mock_session = MagicMock()
     repo = MeasurementRepository(mock_session)
-    expected = object()
-    mock_session.query().filter().order_by().first.return_value = expected
+    expected = [object(), object()]
+    mock_session.query().filter().order_by().limit().all.return_value = expected
 
-    result = repo.get_last_measurement("SITE001")
+    result = repo.get_last_measurements("SITE001", 3)
 
     assert result is expected
 
