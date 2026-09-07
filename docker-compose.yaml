@@ -227,9 +227,6 @@ networks:
     external: true
     
 secrets:
-  db_password:
-    file: ./secrets/db_password
-
   keycloak_client_secret:
     file: ./secrets/keyCloakSecrets/keycloak_client_secret
 
