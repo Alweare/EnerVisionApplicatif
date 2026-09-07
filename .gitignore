@@ -220,3 +220,6 @@ __marimo__/
 
 .idea
 .env
+
+# Secrets Docker (docker-compose.yaml -> secrets:) — jamais commités
+/secrets/

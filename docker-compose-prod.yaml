@@ -2,9 +2,48 @@ services:
   authentication:
     image: ${AUTHENTICATION_IMAGE}
     restart: unless-stopped
+    networks:
+      - g3_default
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_PORT: "5432"
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_HOSTNAME: auth.enervisiong3.prod
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
     secrets:
-      - db_password
       - keycloak_client_secret
+      - keycloak_frontend_client_secret
+      - keycloak_db_password
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+
+  # Pas buildée depuis le repo (image Postgres standard) : le pipeline ne la
+  # déploiera jamais automatiquement. Premier démarrage manuel obligatoire
+  # (cf. doc Confluence Keycloak, §7).
+  keycloak-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      - g3_default
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD_FILE: /run/secrets/keycloak_db_password
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    secrets:
+      - keycloak_db_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   consumption:
     image: ${CONSUMPTION_IMAGE}
@@ -37,3 +76,16 @@ secrets:
 
   keycloak_client_secret:
     file: ./secrets/keycloak_client_secret
+
+  keycloak_frontend_client_secret:
+    file: ./secrets/keycloak_frontend_client_secret
+
+  keycloak_db_password:
+    file: ./secrets/keycloak_db_password
+
+networks:
+  g3_default:
+    external: true
+
+volumes:
+  keycloak_db_data:

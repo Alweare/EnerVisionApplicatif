@@ -29,3 +29,6 @@ class MeasurementService:
 
     def get_last_measurement(self, site_id):
         return self.repository.get_last_measurement(site_id)
+
+    def measurement_exists(self, site_id: str, measurement_date) -> bool:
+        return self.repository.exists(site_id, measurement_date)
