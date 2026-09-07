@@ -7,6 +7,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from core.api.controller.health import router as health_router
 from core.api.controller.measurement import router as measurement_router
 from core.api.controller.site import router as site_router
+from core.api.routes import router as auth_router
 
 app = FastAPI(
     title="EnerVision API",
@@ -32,6 +33,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(site_router)
 app.include_router(measurement_router)
+app.include_router(auth_router)
 
 # Métriques Prometheus (requêtes, latence, codes de statut par endpoint),
 # exposées sur /metrics — cf. EN-280.

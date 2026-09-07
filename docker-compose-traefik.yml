@@ -1,0 +1,24 @@
+# Traefik local uniquement (reproduit le routage HTTPS de prod en dev).
+# Jamais démarré par défaut : combiné explicitement via -f (voir README ou
+# `.\docker.ps1 local up`). Doit être sur enervision_network pour router
+# vers backend/frontend par leur nom de service Docker.
+services:
+  traefik:
+    image: traefik:v3.7
+    container_name: traefik
+    networks:
+      - enervision_network
+    cap_add:
+      - NET_BIND_SERVICE
+    command:
+      - --entrypoints.websecure.address=:443
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+    ports:
+      - 443:443
+    volumes:
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ./certs:/certs:ro
+
+networks:
+  enervision_network:
+    external: true
