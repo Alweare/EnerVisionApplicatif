@@ -1,6 +1,5 @@
 import os
 
-# core.database lit ces variables au moment de l'import (os.environ[...]).
 # On pose des valeurs factices pour que l'import des contrôleurs / de l'app
 # fonctionne en tests sans base réelle — les connexions sont neutralisées
 # via l'override de get_db dans test_routes.py.

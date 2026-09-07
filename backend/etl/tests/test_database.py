@@ -5,7 +5,7 @@ os.environ.setdefault("POSTGRES_DB", "test_db")
 os.environ.setdefault("POSTGRES_APP_USER", "test_app_user")
 os.environ.setdefault("POSTGRES_APP_PWD", "test_app_pwd")
 
-import etl.database as database
+import shared.database as database
 
 
 def test_get_db_yields_session_and_closes_it(monkeypatch):
