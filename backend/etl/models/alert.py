@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Float, Text, TIMESTAMP, ForeignKey, text
-from etl.base import Base
+from shared.base import Base
 
 class Alert(Base):
     __tablename__ = "alert"

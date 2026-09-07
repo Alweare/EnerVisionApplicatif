@@ -37,6 +37,8 @@ services:
       PYWAY_DATABASE_PORT: 5432
       PYWAY_DATABASE_NAME: ${POSTGRES_DB}
       PYWAY_DATABASE_MIGRATION_DIR: migrations
+      APP_DB_USER: ${POSTGRES_APP_USER}
+      APP_DB_PASSWORD: ${POSTGRES_APP_PWD}
 
 volumes:
   postgresql_data:

@@ -1,0 +1,47 @@
+# Keycloak local, pour le développement uniquement.
+#
+# N'est JAMAIS utilisé en staging/production (Keycloak y est déjà déployé et
+# géré indépendamment de ce repo). Inclus automatiquement par :
+#
+#   .\docker.ps1 local up -d
+#
+# Le realm "enervision" (clients + utilisateur de test) est importé
+# automatiquement à chaque démarrage depuis keycloak/realm-export.json.
+services:
+  # Nommé différemment du service "keycloak" (buildé, profile prod) de
+  # docker-compose.yaml : même nom de service = fusion de champs par docker
+  # compose (pas de remplacement), ce qui réintroduirait le build + la
+  # dépendance à keycloak-db ici. container_name règle la résolution DNS
+  # ("keycloak" reste joignable par les autres conteneurs).
+  keycloak-local:
+    image: quay.io/keycloak/keycloak:26.7.3
+    container_name: keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    networks:
+      - enervision_network
+    healthcheck:
+      test: |
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          cat <&3 | grep -q '"status": "UP"'
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+networks:
+  enervision_network:
+    external: true

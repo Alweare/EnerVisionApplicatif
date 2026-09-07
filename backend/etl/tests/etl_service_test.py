@@ -1,19 +1,33 @@
-from datetime import datetime
-from unittest.mock import Mock
-
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import Mock
 
+import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from etl.service.alert_service import AlertService
-from etl.service.etl_service import ETLService
+from etl.service.etl_service import DEFAULT_LOOKBACK_MINUTES, ETLService
 
 def make_service_with_mock():
     service = ETLService.__new__(ETLService)
     service.measurement_service = Mock()
+    service.file_tracking_service = Mock()
+    service.container_client = Mock()
+    service.db = Mock()
+    service.db.begin_nested.return_value.__enter__ = Mock()
+    service.db.begin_nested.return_value.__exit__ = Mock(return_value=False)
+    service.measurement_service.measurement_exists.return_value = False
+    service.lookback_minutes = DEFAULT_LOOKBACK_MINUTES
+    service.forward_fill_depth = 3
     return service
+
+def make_blob(name, minutes_ago):
+    return SimpleNamespace(
+        name=name,
+        last_modified=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
+    )
 
 def test_forward_fill_returns_unchanged_when_nothing_missing():
     service = make_service_with_mock()
@@ -25,13 +39,14 @@ def test_forward_fill_returns_unchanged_when_nothing_missing():
 
     cleaned = service.forward_fill("SITE001", reading)
 
-    assert cleaned == reading
-    service.measurement_service.get_last_measurement.assert_not_called()
+    assert cleaned == {**reading, "forward_filled_fields": []}
+    service.measurement_service.get_last_measurements.assert_not_called()
 
 def test_forward_fill_fills_missing_field_from_last_measurement():
     service = make_service_with_mock()
-    last = Mock(temperature_celsius=20.0, humidity_percent=50.0)
-    service.measurement_service.get_last_measurement.return_value = last
+    last = Mock(temperature_celsius=20.0, humidity_percent=50.0,
+                forward_filled_fields=[])
+    service.measurement_service.get_last_measurements.return_value = [last]
 
     reading = {
         "consumption_kw": 87.34, "consumption_kwh": 87.34, "voltage_v": 401.2,
@@ -47,7 +62,7 @@ def test_forward_fill_fills_missing_field_from_last_measurement():
 
 def test_forward_fill_keeps_null_when_no_previous_measurement():
     service = make_service_with_mock()
-    service.measurement_service.get_last_measurement.return_value = None
+    service.measurement_service.get_last_measurements.return_value = []
 
     reading = {"consumption_kw": 87.34, "temperature_celsius": None}
 
@@ -57,8 +72,8 @@ def test_forward_fill_keeps_null_when_no_previous_measurement():
 
 def test_forward_fill_does_not_mutate_original_reading():
     service = make_service_with_mock()
-    last = Mock(temperature_celsius=20.0)
-    service.measurement_service.get_last_measurement.return_value = last
+    last = Mock(temperature_celsius=20.0, forward_filled_fields=[])
+    service.measurement_service.get_last_measurements.return_value = [last]
 
     reading = {"consumption_kw": 87.34, "temperature_celsius": None}
     service.forward_fill("SITE001", reading)
@@ -67,7 +82,7 @@ def test_forward_fill_does_not_mutate_original_reading():
 
 def test_transform_builds_measurement_from_cleaned_reading():
     service = make_service_with_mock()
-    service.measurement_service.get_last_measurement.return_value = None
+    service.measurement_service.get_last_measurements.return_value = []
     expected_measurement = Mock()
     service.measurement_service.build_measurement.return_value = expected_measurement
 
@@ -77,93 +92,452 @@ def test_transform_builds_measurement_from_cleaned_reading():
     assert result is expected_measurement
     service.measurement_service.build_measurement.assert_called_once()
 
-def test_load_calls_save_with_measurement():
+def test_load_adds_measurement_without_commit():
     service = make_service_with_mock()
     measurement = Mock()
 
     service.load(measurement)
 
-    service.measurement_service.save_measurement.assert_called_once_with(measurement)
+    service.measurement_service.add_measurement.assert_called_once_with(measurement)
+    service.db.commit.assert_not_called()
 
-def test_run_processes_each_reading():
+
+# --- Étape 2 : filtrage temporel sur last_modified ------------------------
+
+def test_list_recent_blob_paths_keeps_only_blobs_within_window():
     service = make_service_with_mock()
-    # Mock de la base de données pour que la vérification du site réussisse
-    service.db = Mock()
-    service.db.query().filter().scalar.return_value = "SITE001"
+    service.lookback_minutes = 3  # fenêtre étroite : c'est l'objet du test
+    service.container_client.list_blobs.return_value = [
+        make_blob("measures/old.json", minutes_ago=10),
+        make_blob("measures/recent.json", minutes_ago=1),
+    ]
 
-    service.extract_all = Mock(return_value=[
-        {"site_id": "SITE001", "reading": 1},
-        {"site_id": "SITE001", "reading": 2}
-    ])
-    service.transform = Mock(side_effect=lambda site_id, reading: f"measurement-{reading['reading']}")
-    service.load = Mock()
+    paths = service.list_recent_blob_paths()
+
+    assert paths == ["measures/recent.json"]
+    # Une fenêtre de 3 minutes ne couvre qu'un jour : un seul préfixe listé.
+    service.container_client.list_blobs.assert_called_once_with(
+        name_starts_with=f"measures/{datetime.now(timezone.utc):%Y/%m/%d}/"
+    )
+
+def test_list_recent_blob_paths_sorts_chronologically():
+    service = make_service_with_mock()
+    # Fenêtre étroite pour ne lister qu'un préfixe de jour : le mock renvoie
+    # la même liste pour chaque préfixe, deux jours doubleraient les blobs.
+    service.lookback_minutes = 3
+    service.container_client.list_blobs.return_value = [
+        make_blob("measures/b.json", minutes_ago=1),
+        make_blob("measures/a.json", minutes_ago=2),
+    ]
+
+    paths = service.list_recent_blob_paths()
+
+    assert paths == ["measures/a.json", "measures/b.json"]
+
+def test_list_recent_blob_paths_uses_explicit_window_over_default():
+    service = make_service_with_mock()
+    service.lookback_minutes = 3  # le blob de 30 min doit tomber hors fenêtre
+    service.container_client.list_blobs.return_value = [
+        make_blob("measures/old.json", minutes_ago=30),
+    ]
+
+    assert service.list_recent_blob_paths() == []
+    assert service.list_recent_blob_paths(lookback_minutes=60) == ["measures/old.json"]
+
+
+# --- Étape 3 : dédoublonnage ---------------------------------------------
+
+def test_run_processes_only_files_not_already_tracked():
+    service = make_service_with_mock()
+    service.list_recent_blob_paths = Mock(
+        return_value=["measures/a.json", "measures/b.json"]
+    )
+    service.file_tracking_service.filter_new_files.return_value = ["measures/b.json"]
+    service.process_batch = Mock()
 
     service.run()
 
-    assert service.transform.call_count == 2
-    assert service.load.call_count == 2
-    service.load.assert_any_call("measurement-1")
-    service.load.assert_any_call("measurement-2")
+    service.file_tracking_service.filter_new_files.assert_called_once_with(
+        ["measures/a.json", "measures/b.json"]
+    )
+    service.process_batch.assert_called_once_with(["measures/b.json"])
 
-def test_run_does_nothing_when_no_readings():
+def test_run_does_nothing_when_no_recent_file():
     service = make_service_with_mock()
-    service.extract_all = Mock(return_value=[])
+    service.list_recent_blob_paths = Mock(return_value=[])
+    service.process_batch = Mock()
+
+    service.run()
+
+    service.process_batch.assert_not_called()
+    service.file_tracking_service.filter_new_files.assert_not_called()
+
+
+# --- Étape 4 : insertion transactionnelle --------------------------------
+
+def test_process_batch_commits_once_for_all_files():
+    service = make_service_with_mock()
+    service.download_readings = Mock(side_effect=lambda path: [
+        {"site_id": "SITE001", "reading": path}
+    ])
+    measurements = {
+        "measures/a.json": Mock(site_id="SITE001", measurement_date=1),
+        "measures/b.json": Mock(site_id="SITE001", measurement_date=2),
+    }
+    service.transform = Mock(side_effect=lambda site_id, reading: measurements[reading["reading"]])
+    service.load = Mock()
+
+    assert service.process_batch(["measures/a.json", "measures/b.json"]) is True
+
+    assert service.load.call_count == 2
+    service.load.assert_any_call(measurements["measures/a.json"])
+    service.load.assert_any_call(measurements["measures/b.json"])
+
+def test_process_batch_rolls_back_everything_when_commit_fails():
+    service = make_service_with_mock()
+    service.download_readings = Mock(return_value=[{"site_id": "SITE001"}])
+    service._site_exists = Mock(return_value=True)
+    service.transform = Mock(return_value="measurement")
+    service.load = Mock()
+    service.db.commit.side_effect = SQLAlchemyError("connexion perdue")
+
+    assert service.process_batch(["measures/a.json"]) is False
+
+    service.db.rollback.assert_called_once()
+
+def test_process_batch_skips_failing_file_and_keeps_the_rest():
+    service = make_service_with_mock()
+    service.download_readings = Mock(side_effect=[
+        OSError("azure indisponible"),
+        [{"site_id": "SITE001", "reading": "ok"}],
+    ])
+    service._site_exists = Mock(return_value=True)
+    service.transform = Mock(return_value=Mock(site_id="SITE001", measurement_date=1))
+    service.load = Mock()
+
+    assert service.process_batch(["measures/ko.json", "measures/ok.json"]) is True
+
+    # Seul le fichier lisible est tracé ; l'autre sera rejoué.
+    service.file_tracking_service.mark_processed.assert_called_once_with("measures/ok.json")
+    service.db.commit.assert_called_once()
+
+def test_stage_blob_skips_reading_without_site_id_but_still_tracks_file():
+    service = make_service_with_mock()
+    service.download_readings = Mock(return_value=[{"consumption_kw": 12.0}])
+    service._site_exists = Mock(return_value=True)
     service.transform = Mock()
     service.load = Mock()
 
-    service.run()
+    assert service.stage_blob("measures/a.json") == 0
 
     service.transform.assert_not_called()
     service.load.assert_not_called()
 
-# --- Alertes ---------------------------------------------------------------
+def test_start_continuous_run_loops_then_stops(monkeypatch):
+    service = make_service_with_mock()
+    service.run = Mock()
 
-RAW_ALERT = {
-    "alert_id": "ALR-SITE002-1718458320",
-    "timestamp": "2024-06-15T14:12:00",
-    "site_id": "SITE002",
-    "severity": "critical",
-    "type": "outage",
-    "message": "Risque de surcharge sur Usine Lyon Vénissieux",
-    "value": 812.5,
-    "threshold": 720.0,
-}
+    calls = {"n": 0}
+    def fake_sleep(_interval):
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            raise KeyboardInterrupt
+    monkeypatch.setattr("etl.service.etl_service.time.sleep", fake_sleep)
+
+    with pytest.raises(KeyboardInterrupt):
+        service.start_continuous_run(interval=0)
+
+    assert service.run.call_count == 2
+
+def test_start_continuous_run_logs_error_and_keeps_going(monkeypatch):
+    service = make_service_with_mock()
+    service.run = Mock(side_effect=RuntimeError("boom"))
+
+    def fake_sleep(_interval):
+        raise KeyboardInterrupt
+    monkeypatch.setattr("etl.service.etl_service.time.sleep", fake_sleep)
+
+    with pytest.raises(KeyboardInterrupt):
+        service.start_continuous_run(interval=0)
+
+    service.run.assert_called_once()
 
 
-def make_alert_service_with_mock(known_sites=("SITE001", "SITE002")):
-    service = ETLService.__new__(ETLService)
-    service.db = Mock()
-    service.db.query.return_value.all.return_value = [(s,) for s in known_sites]
-    service.alert_service = AlertService.__new__(AlertService)
-    service.alert_service.repository = Mock()
-    service.alert_service.repository.add.side_effect = len
-    service.file_tracking_service = Mock()
-    service.file_tracking_service.filter_new_files.side_effect = lambda paths: paths
-    return service
+# --- Forward-fill borné à 3 enregistrements --------------------------------
+
+def measurement_with(**fields):
+    """Mesure factice : tout champ non précisé vaut None."""
+    values = {f: None for f in (
+        "consumption_kw", "consumption_kwh", "voltage_v", "current_a",
+        "power_factor", "temperature_celsius", "humidity_percent",
+    )}
+    values["forward_filled_fields"] = []
+    values.update(fields)
+    return SimpleNamespace(**values)
 
 
-def make_container_client_with(blobs: dict, minutes_ago: int = 1):
-    now = datetime.now(timezone.utc)
-    container_client = Mock()
-    container_client.list_blobs.return_value = [
-        SimpleNamespace(name=name, last_modified=now - timedelta(minutes=minutes_ago))
-        for name in blobs
+def test_forward_fill_looks_back_at_three_records_only():
+    service = make_service_with_mock()
+    service.measurement_service.get_last_measurements.return_value = []
+
+    service.forward_fill("SITE001", {"temperature_celsius": None})
+
+    service.measurement_service.get_last_measurements.assert_called_once_with(
+        "SITE001", 3
+    )
+
+
+def test_forward_fill_takes_the_most_recent_non_null_of_the_three():
+    service = make_service_with_mock()
+    # Trié du plus récent au plus ancien : le 1er est nul, le 2e porte 21.0.
+    service.measurement_service.get_last_measurements.return_value = [
+        measurement_with(temperature_celsius=None),
+        measurement_with(temperature_celsius=21.0),
+        measurement_with(temperature_celsius=19.0),
     ]
 
-    def get_blob_client(name):
-        client = Mock()
-        client.download_blob.return_value.readall.return_value = blobs[name].encode()
-        return client
+    cleaned = service.forward_fill("SITE001", {"temperature_celsius": None})
 
-    container_client.get_blob_client.side_effect = get_blob_client
-    return container_client
+    assert cleaned["temperature_celsius"] == 21.0
 
 
-def test_default_lookback_window_covers_a_full_day():
-    from etl.service.etl_service import DEFAULT_LOOKBACK_MINUTES
+def test_forward_fill_keeps_null_when_the_three_records_are_all_null():
+    service = make_service_with_mock()
+    service.measurement_service.get_last_measurements.return_value = [
+        measurement_with(temperature_celsius=None),
+        measurement_with(temperature_celsius=None),
+        measurement_with(temperature_celsius=None),
+    ]
 
-    assert DEFAULT_LOOKBACK_MINUTES == 24 * 60
+    cleaned = service.forward_fill("SITE001", {"temperature_celsius": None})
 
+    assert cleaned["temperature_celsius"] is None
+
+
+def test_forward_fill_no_longer_copies_a_null_from_the_last_record():
+    # Ancien comportement : la valeur de la dernière mesure était reprise même
+    # nulle, ce qui écrasait une valeur disponible juste avant.
+    service = make_service_with_mock()
+    service.measurement_service.get_last_measurements.return_value = [
+        measurement_with(voltage_v=None),
+        measurement_with(voltage_v=400.0),
+    ]
+
+    cleaned = service.forward_fill("SITE001", {"voltage_v": None})
+
+    assert cleaned["voltage_v"] == 400.0
+
+
+def test_forward_fill_resolves_each_field_independently():
+    service = make_service_with_mock()
+    service.measurement_service.get_last_measurements.return_value = [
+        measurement_with(voltage_v=401.2, temperature_celsius=None),
+        measurement_with(voltage_v=None, temperature_celsius=22.1),
+    ]
+
+    cleaned = service.forward_fill(
+        "SITE001", {"voltage_v": None, "temperature_celsius": None}
+    )
+
+    assert cleaned["voltage_v"] == 401.2
+    assert cleaned["temperature_celsius"] == 22.1
+
+
+def test_forward_fill_warns_about_fields_left_null(caplog):
+    service = make_service_with_mock()
+    service.measurement_service.get_last_measurements.return_value = [
+        measurement_with(temperature_celsius=None),
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="etl.service.etl_service"):
+        service.forward_fill("SITE001", {"temperature_celsius": None})
+
+    assert any("restent null" in r.getMessage() for r in caplog.records)
+
+
+def test_forward_fill_depth_defaults_to_three():
+    from etl.service.etl_service import DEFAULT_FORWARD_FILL_DEPTH
+
+    assert DEFAULT_FORWARD_FILL_DEPTH == 3
+
+
+# --- Plafond de recopies consécutives --------------------------------------
+
+def test_forward_fill_stops_after_three_consecutive_copies():
+    service = make_service_with_mock()
+    # Les 3 derniers enregistrements portent tous une valeur déjà recopiée.
+    service.measurement_service.get_last_measurements.return_value = [
+        measurement_with(temperature_celsius=22.0,
+                         forward_filled_fields=["temperature_celsius"]),
+        measurement_with(temperature_celsius=22.0,
+                         forward_filled_fields=["temperature_celsius"]),
+        measurement_with(temperature_celsius=22.0,
+                         forward_filled_fields=["temperature_celsius"]),
+    ]
+
+    cleaned = service.forward_fill("SITE001", {"temperature_celsius": None})
+
+    assert cleaned["temperature_celsius"] is None
+    assert cleaned["forward_filled_fields"] == []
+
+
+def test_forward_fill_still_copies_at_the_third_time():
+    service = make_service_with_mock()
+    # Deux recopies seulement : la troisième est encore permise.
+    service.measurement_service.get_last_measurements.return_value = [
+        measurement_with(temperature_celsius=22.0,
+                         forward_filled_fields=["temperature_celsius"]),
+        measurement_with(temperature_celsius=22.0,
+                         forward_filled_fields=["temperature_celsius"]),
+        measurement_with(temperature_celsius=22.0),  # mesure réelle
+    ]
+
+    cleaned = service.forward_fill("SITE001", {"temperature_celsius": None})
+
+    assert cleaned["temperature_celsius"] == 22.0
+    assert cleaned["forward_filled_fields"] == ["temperature_celsius"]
+
+
+def test_a_real_measurement_resets_the_streak():
+    service = make_service_with_mock()
+    # Le plus récent est une vraie mesure : le compteur repart de zéro même si
+    # des recopies existent plus loin.
+    service.measurement_service.get_last_measurements.return_value = [
+        measurement_with(temperature_celsius=25.0),
+        measurement_with(temperature_celsius=22.0,
+                         forward_filled_fields=["temperature_celsius"]),
+        measurement_with(temperature_celsius=22.0,
+                         forward_filled_fields=["temperature_celsius"]),
+    ]
+
+    cleaned = service.forward_fill("SITE001", {"temperature_celsius": None})
+
+    assert cleaned["temperature_celsius"] == 25.0
+
+
+def test_the_streak_is_counted_per_field():
+    service = make_service_with_mock()
+    # Température épuisée, tension non : seule la tension doit être comblée.
+    recents = [
+        measurement_with(temperature_celsius=22.0, voltage_v=400.0,
+                         forward_filled_fields=["temperature_celsius"]),
+    ] * 3
+    service.measurement_service.get_last_measurements.return_value = recents
+
+    cleaned = service.forward_fill(
+        "SITE001", {"temperature_celsius": None, "voltage_v": None}
+    )
+
+    assert cleaned["temperature_celsius"] is None
+    assert cleaned["voltage_v"] == 400.0
+    assert cleaned["forward_filled_fields"] == ["voltage_v"]
+
+
+def test_forward_fill_records_which_fields_it_filled():
+    service = make_service_with_mock()
+    service.measurement_service.get_last_measurements.return_value = [
+        measurement_with(voltage_v=401.2, temperature_celsius=22.1),
+    ]
+
+    cleaned = service.forward_fill(
+        "SITE001", {"voltage_v": None, "temperature_celsius": None}
+    )
+
+    assert set(cleaned["forward_filled_fields"]) == {"voltage_v", "temperature_celsius"}
+
+
+def test_forward_fill_records_nothing_when_no_field_is_missing():
+    service = make_service_with_mock()
+    complete = {
+        "consumption_kw": 87.34, "consumption_kwh": 87.34, "voltage_v": 401.2,
+        "current_a": 132.5, "power_factor": 0.923, "temperature_celsius": 22.1,
+        "humidity_percent": 58.4,
+    }
+
+    cleaned = service.forward_fill("SITE001", complete)
+
+    assert cleaned["forward_filled_fields"] == []
+    service.measurement_service.get_last_measurements.assert_not_called()
+
+
+def test_a_null_record_does_not_restart_the_copies():
+    # Piège : après 3 recopies, le champ reste nul. Cet enregistrement nul ne
+    # doit pas être pris pour une vraie mesure, sinon les recopies repartent.
+    service = make_service_with_mock()
+    service.measurement_service.get_last_measurements.return_value = [
+        measurement_with(temperature_celsius=None),          # le null du cycle 4
+        measurement_with(temperature_celsius=22.0,
+                         forward_filled_fields=["temperature_celsius"]),
+        measurement_with(temperature_celsius=22.0,
+                         forward_filled_fields=["temperature_celsius"]),
+    ]
+
+    cleaned = service.forward_fill("SITE001", {"temperature_celsius": None})
+
+    assert cleaned["temperature_celsius"] is None
+
+
+def test_copies_resume_after_the_sensor_comes_back():
+    service = make_service_with_mock()
+    service.measurement_service.get_last_measurements.return_value = [
+        measurement_with(temperature_celsius=25.0),          # capteur revenu
+        measurement_with(temperature_celsius=None),
+        measurement_with(temperature_celsius=None),
+    ]
+
+    cleaned = service.forward_fill("SITE001", {"temperature_celsius": None})
+
+    assert cleaned["temperature_celsius"] == 25.0
+    assert cleaned["forward_filled_fields"] == ["temperature_celsius"]
+
+
+def test_both_settings_are_read_from_the_environment(monkeypatch):
+    monkeypatch.setenv("ETL_LOOKBACK_MINUTES", "17")
+    monkeypatch.setenv("ETL_FORWARD_FILL_DEPTH", "5")
+    monkeypatch.setenv("AZURE_STORAGE_ACCOUNT", "compte")
+    monkeypatch.setenv("AZURE_STORAGE_CONTAINER_NAME", "raw")
+    monkeypatch.setenv("AZURE_SAS_ETL", "jeton")
+
+    service = ETLService(Mock())
+
+    assert service.lookback_minutes == 17
+    assert service.forward_fill_depth == 5
+
+
+def test_the_configured_depth_drives_the_lookup(monkeypatch):
+    service = make_service_with_mock()
+    service.forward_fill_depth = 5
+    service.measurement_service.get_last_measurements.return_value = []
+
+    service.forward_fill("SITE001", {"temperature_celsius": None})
+
+    service.measurement_service.get_last_measurements.assert_called_once_with(
+        "SITE001", 5
+    )
+
+
+def test_cycles_since_real_value_counts_until_a_real_measurement():
+    from etl.service.etl_service import cycles_since_real_value
+
+    recents = [
+        measurement_with(temperature_celsius=22.0,
+                         forward_filled_fields=["temperature_celsius"]),  # recopie
+        measurement_with(temperature_celsius=None),                       # null
+        measurement_with(temperature_celsius=22.0),                       # vraie mesure
+    ]
+
+    assert cycles_since_real_value("temperature_celsius", recents) == 2
+
+
+def test_cycles_since_real_value_is_zero_on_a_fresh_measurement():
+    from etl.service.etl_service import cycles_since_real_value
+
+    recents = [measurement_with(temperature_celsius=22.0)]
+
+    assert cycles_since_real_value("temperature_celsius", recents) == 0
+
+
+# --- Alertes (apporté par EN-278) ------------------------------------------
 
 def make_alert_service_with_mock(known_sites=("SITE001", "SITE002")):
     service = ETLService.__new__(ETLService)
@@ -177,6 +551,18 @@ def make_alert_service_with_mock(known_sites=("SITE001", "SITE002")):
     service.file_tracking_service = Mock()
     service.file_tracking_service.filter_new_files.side_effect = lambda paths: paths
     return service
+
+
+RAW_ALERT = {
+    "alert_id": "ALR-SITE002-1718458320",
+    "timestamp": "2024-06-15T14:12:00",
+    "site_id": "SITE002",
+    "severity": "critical",
+    "type": "outage",
+    "message": "Risque de surcharge sur Usine Lyon Vénissieux",
+    "value": 812.5,
+    "threshold": 720.0,
+}
 
 
 def test_stage_alert_blob_inserts_and_tracks_the_file():

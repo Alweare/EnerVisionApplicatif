@@ -149,6 +149,8 @@ activemq-data/
 
 # Environments
 .env
+.env.local
+.env.production
 .envrc
 .venv
 env/
@@ -199,7 +201,7 @@ cython_debug/
 #   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
 #   and can be added to the global gitignore or merged into this file. However, if you prefer, 
 #   you could uncomment the following to ignore the entire vscode folder
-# .vscode/
+.vscode/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
@@ -215,8 +217,16 @@ marimo/_lsp/
 __marimo__/
 
 # Streamlit
-.streamlit/secrets.toml
+**/.streamlit/secrets.toml
 
+# Docker secrets (contenu réel des secrets — jamais commité)
+/secrets/
+
+# Certificats TLS locaux (Traefik) — générés par chaque développeur, jamais commités
+/certs/
 
 .idea
 .env
+
+# Secrets Docker (docker-compose.yaml -> secrets:) — jamais commités
+/secrets/

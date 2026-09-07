@@ -1,0 +1,47 @@
+# Routage Traefik LOCAL uniquement — reproduit un reverse proxy HTTPS pour le
+# dev. Routage volontairement minimal (localhost) : à adapter si un schéma de
+# routage plus proche de la production est nécessaire (voir dynamic-new.yml,
+# en cours de définition séparément pour l'infra distante).
+tls:
+  certificates:
+    - certFile: /certs/cert.pem
+      keyFile: /certs/key.pem
+
+http:
+  routers:
+    frontend:
+      rule: "Host(`localhost`)"
+      entryPoints:
+        - websecure
+      service: frontend
+      tls: {}
+
+    backend:
+      rule: "Host(`localhost`) && (PathPrefix(`/api`) || PathPrefix(`/docs`) || PathPrefix(`/openapi.json`))"
+      entryPoints:
+        - websecure
+      service: backend
+      tls: {}
+
+    health:
+      rule: "Host(`localhost`) && PathPrefix(`/health`)"
+      entryPoints:
+        - websecure
+      service: health
+      tls: {}
+
+  services:
+    frontend:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:8501"
+
+    backend:
+      loadBalancer:
+        servers:
+          - url: "http://backend:8000"
+
+    health:
+      loadBalancer:
+        servers:
+          - url: "http://health:8000"
