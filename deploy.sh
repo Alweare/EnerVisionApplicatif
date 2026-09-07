@@ -54,6 +54,8 @@ docker run -d \
     --name "$SERVICE" \
     --restart unless-stopped \
     --network g3_default \
+    --env-file /opt/enervisionG3/.env \
+    -v /opt/enervisionG3/secrets:/run/secrets:ro \
     "$IMAGE"
 
 sleep 3

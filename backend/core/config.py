@@ -1,6 +1,5 @@
 from functools import lru_cache
 
-from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,15 +10,6 @@ class Settings(BaseSettings):
     keycloak_url: str
     keycloak_realm: str
     keycloak_client_id: str
-
-    db_host: str
-    db_port: int = 5432
-    db_name: str
-    db_user: str
-
-    # Secrets
-    db_password: SecretStr
-    keycloak_client_secret: SecretStr
 
     model_config = SettingsConfigDict(
         env_file=".env",
