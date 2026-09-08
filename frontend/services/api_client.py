@@ -5,7 +5,7 @@ import streamlit as st
 
 from authentification.auth import get_access_token
 
-CORE_URL = os.environ.get("CORE_URL", "http://localhost:8000")
+CORE_URL = os.environ.get("CORE_URL")
 
 
 class BackendUnavailableError(Exception):
