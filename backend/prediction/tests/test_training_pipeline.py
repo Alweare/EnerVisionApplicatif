@@ -55,7 +55,7 @@ def test_first_candidate_becomes_champion_when_it_beats_baseline(mlflow_tracking
 
     client = MlflowClient()
     champion = client.get_model_version_by_alias(MODEL_NAME, "champion")
-    assert champion.version == result.model_version
+    assert str(champion.version) == result.model_version
 
 
 def test_candidate_rejected_when_it_does_not_beat_baseline(mlflow_tracking_uri):
@@ -85,8 +85,8 @@ def test_better_challenger_replaces_champion(mlflow_tracking_uri):
 
     client = MlflowClient()
     champion = client.get_model_version_by_alias(MODEL_NAME, "champion")
-    assert champion.version == second.model_version
-    assert champion.version != first.model_version
+    assert str(champion.version) == second.model_version
+    assert str(champion.version) != first.model_version
 
 
 def test_worse_challenger_is_rejected_and_champion_is_unchanged(mlflow_tracking_uri):
@@ -102,7 +102,7 @@ def test_worse_challenger_is_rejected_and_champion_is_unchanged(mlflow_tracking_
 
     client = MlflowClient()
     champion = client.get_model_version_by_alias(MODEL_NAME, "champion")
-    assert champion.version == first.model_version
+    assert str(champion.version) == first.model_version
 
     rejected = client.get_model_version(MODEL_NAME, second.model_version)
     assert rejected.tags.get("rejected") == "true"
@@ -117,7 +117,7 @@ def test_history_of_all_versions_is_preserved(mlflow_tracking_uri):
 
     client = MlflowClient()
     all_versions = client.search_model_versions(f"name='{MODEL_NAME}'")
-    versions = {v.version for v in all_versions}
+    versions = {str(v.version) for v in all_versions}
 
     assert first.model_version in versions
     assert second.model_version in versions

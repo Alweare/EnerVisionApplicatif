@@ -3,4 +3,8 @@ sqlalchemy
 psycopg2-binary
 scikit-learn
 mlflow
-dvc[ssh]
+numpy
+fastapi
+uvicorn[standard]
+prometheus-fastapi-instrumentator
+prometheus-client

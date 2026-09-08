@@ -85,3 +85,14 @@ def test_train_if_needed_command_returns_one_on_failure(mock_orchestrator, caplo
 def test_main_requires_a_command():
     with pytest.raises(SystemExit):
         main([])
+
+
+@patch("uvicorn.run")
+def test_serve_command_runs_uvicorn_on_the_api_app(mock_run):
+    exit_code = main(["serve"])
+
+    assert exit_code == 0
+    mock_run.assert_called_once()
+    args, kwargs = mock_run.call_args
+    assert args[0] == "prediction.api.app:app"
+    assert kwargs["host"] == "0.0.0.0"
