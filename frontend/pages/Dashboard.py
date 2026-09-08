@@ -1,5 +1,6 @@
 import streamlit as st
 
+from branding import render_logo
 from formatting import (
     data_quality_color,
     data_quality_label,
@@ -12,6 +13,8 @@ from formatting import (
 )
 from services.measurement_service import get_current_measurement, get_measurement_history
 from services.site_service import get_sites
+
+render_logo()
 
 st.header("Dashboard")
 

@@ -1,10 +1,12 @@
 import streamlit as st
 
 from authentification.auth import render_user_menu, require_authentication
+from branding import render_logo
 from services.api_client import BackendUnavailableError, get
 
 st.set_page_config(page_title="EnerVision", page_icon="⚡", layout="wide")
-st.logo("assets/enervision_logo.svg")
+
+render_logo()
 
 require_authentication()
 render_user_menu()
