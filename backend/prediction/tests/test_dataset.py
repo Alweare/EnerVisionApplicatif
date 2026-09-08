@@ -18,7 +18,9 @@ from prediction.dataset.dataset import (
     NotEnoughDataError,
     _split_by_cutoff,
     build_dataset,
+    clean_dataset,
     split_train_test,
+    split_train_val_test,
 )
 
 START = datetime(2026, 1, 1)
@@ -133,3 +135,61 @@ def test_split_train_test_returns_only_feature_columns():
     assert y_train.name == TARGET_COLUMN
     assert len(X_train) == len(y_train)
     assert len(X_test) == len(y_test)
+
+
+# --- split_train_val_test : split temporel à trois voies -----------------
+
+def test_split_train_val_test_is_chronological_and_disjoint():
+    train, validation, test = split_train_val_test(_dataset_frame(1000))
+
+    assert train["measurement_date"].max() < validation["measurement_date"].min()
+    assert validation["measurement_date"].max() < test["measurement_date"].min()
+
+
+def test_split_train_val_test_respects_default_ratios():
+    train, validation, test = split_train_val_test(_dataset_frame(1000))
+    total = len(train) + len(validation) + len(test)
+
+    assert abs(len(train) / total - 0.7) < 0.02
+    assert abs(len(validation) / total - 0.15) < 0.02
+    assert abs(len(test) / total - 0.15) < 0.02
+
+
+def test_split_train_val_test_keeps_all_columns_for_downstream_use():
+    train, validation, test = split_train_val_test(_dataset_frame(1000))
+
+    for chunk in (train, validation, test):
+        for column in FEATURE_COLUMNS + [TARGET_COLUMN, "site_id", "measurement_date"]:
+            assert column in chunk.columns
+
+
+def test_split_train_val_test_raises_when_dataset_too_small():
+    with pytest.raises(NotEnoughDataError):
+        split_train_val_test(_dataset_frame(2))
+
+
+def test_split_train_val_test_no_row_used_in_more_than_one_split():
+    df = _dataset_frame(1000)
+    train, validation, test = split_train_val_test(df)
+
+    train_dates = set(train["measurement_date"])
+    validation_dates = set(validation["measurement_date"])
+    test_dates = set(test["measurement_date"])
+
+    assert not (train_dates & validation_dates)
+    assert not (validation_dates & test_dates)
+    assert not (train_dates & test_dates)
+    assert len(train) + len(validation) + len(test) == len(df)
+
+
+# --- clean_dataset : nettoyage partagé -------------------------------
+
+def test_clean_dataset_drops_missing_feature_or_target_and_sorts():
+    df = _dataset_frame(100)
+    df.loc[5, "lag_1h"] = np.nan
+    shuffled = df.sample(frac=1, random_state=0)
+
+    cleaned = clean_dataset(shuffled)
+
+    assert len(cleaned) == 99
+    assert cleaned["measurement_date"].is_monotonic_increasing
