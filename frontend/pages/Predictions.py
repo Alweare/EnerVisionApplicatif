@@ -43,7 +43,6 @@ def show_prediction(site_id: str) -> None:
     points = data.get("points", [])
     history = data.get("history", [])
 
-    # --- Prochain pic prévu ------------------------------------------
     with st.container(border=True):
         st.caption("Prochain pic prévu")
         value_col, when_col = st.columns([1, 2], vertical_alignment="center")
@@ -54,8 +53,7 @@ def show_prediction(site_id: str) -> None:
             f"estimé le {format_day_time(prediction.get('predicted_for'))}"
         )
 
-    # --- Historique + projection horaire ---------------------------
-    st.subheader("Historique + projection")
+    st.subheader("Consommation horaire — mesuré et prévu")
 
     hist_df = None
     frames = []
@@ -72,8 +70,7 @@ def show_prediction(site_id: str) -> None:
         )
         proj_df["ts"] = pd.to_datetime(proj_df["ts"], format="ISO8601")
         proj_df["serie"] = "projection"
-        # Souder les deux courbes : la projection reprend au dernier point
-        # mesuré, sinon un « trou » d'une heure sépare le bleu de l'orange.
+
         if hist_df is not None and not hist_df.empty:
             bridge = hist_df.iloc[[-1]].assign(serie="projection")
             proj_df = pd.concat([bridge[["ts", "kw", "serie"]], proj_df])
@@ -82,9 +79,6 @@ def show_prediction(site_id: str) -> None:
     if frames:
         df = pd.concat(frames, ignore_index=True).sort_values("ts")
 
-        # Une graduation par heure pile, listée explicitement : `tickCount`
-        # n'est qu'une indication et Vega finit par n'afficher qu'un label
-        # toutes les 6 h.
         hour_ticks = pd.date_range(
             df["ts"].min().floor("h"), df["ts"].max().ceil("h"), freq="h"
         )
