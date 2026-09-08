@@ -12,7 +12,7 @@ services:
     profiles: ["prod"]
     build:
       context: .
-      dockerfile: backend/authentication/Dockerfile
+      dockerfile: authentication/Dockerfile
     networks:
       - enervision_network
     ports:
