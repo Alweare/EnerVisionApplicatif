@@ -7,27 +7,6 @@ from prediction.training.training_service import train_model, evaluate_model
 
 
 @pytest.fixture
-def mlflow_tracking_uri(tmp_path, monkeypatch):
-    """
-    Configure un backend MLflow SQLite temporaire pour chaque test.
-
-    Les tests sont ainsi totalement isolés du serveur MLflow réel.
-    """
-    db_path = tmp_path / "mlflow.db"
-
-    tracking_uri = f"sqlite:///{db_path.as_posix()}"
-
-    monkeypatch.setenv(
-        "MLFLOW_TRACKING_URI",
-        tracking_uri,
-    )
-
-    mlflow.set_tracking_uri(tracking_uri)
-
-    return tracking_uri
-
-
-@pytest.fixture
 def clean_dataset():
     """
     Relation parfaitement linéaire :

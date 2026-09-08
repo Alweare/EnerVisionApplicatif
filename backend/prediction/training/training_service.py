@@ -24,7 +24,7 @@ def train_model(X_train, y_train, dvc_hash: str | None = None):
         mlflow.log_param("n_train_rows", len(X_train))
         if dvc_hash:
             mlflow.log_param("dvc_hash", dvc_hash)
-        mlflow.sklearn.log_model(model, artifact_path="model", registered_model_name="consumption-predictor")
+        mlflow.sklearn.log_model(model, artifact_path="model")
 
         return model, run.info.run_id
 
