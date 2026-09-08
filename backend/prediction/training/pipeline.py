@@ -163,7 +163,7 @@ def run_training_pipeline(
 
     return TrainingPipelineResult(
         run_id=run_id,
-        model_version=version.version,
+        model_version=str(version.version),
         mae=test_mae,
         validation_mae=validation_mae,
         baseline_mae=test_baseline_mae,
