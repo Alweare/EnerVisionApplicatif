@@ -36,3 +36,20 @@ async def test_list_site_ids_returns_known_sites(mock_httpx):
     site_ids = await mock_api.list_site_ids()
 
     assert site_ids == ["SITE001", "SITE002", "SITE003"]
+
+
+async def test_get_alerts_raw_returns_the_alert_list(mock_httpx):
+    response = await mock_api.get_alerts_raw()
+
+    assert response.status_code == 200
+    assert [alert["site_id"] for alert in response.json()] == ["SITE002", "SITE001"]
+
+
+async def test_get_alerts_raw_does_not_transform_the_payload(mock_httpx):
+    response = await mock_api.get_alerts_raw()
+
+    critical = response.json()[0]
+    assert critical["severity"] == "critical"
+    assert critical["type"] == "outage"
+    assert critical["value"] == 812.5
+    assert critical["threshold"] == 720.0
