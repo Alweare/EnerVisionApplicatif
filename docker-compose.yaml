@@ -157,6 +157,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mlflow:
+        condition: service_healthy
 
 volumes:
   keycloak_db_data:
