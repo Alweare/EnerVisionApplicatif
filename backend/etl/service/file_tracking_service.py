@@ -2,7 +2,6 @@ from sqlalchemy.orm import Session
 
 from etl.repository.file_tracking_repository import FileTrackingRepository
 
-
 class FileTrackingService:
     def __init__(self, db: Session):
         self.db = db

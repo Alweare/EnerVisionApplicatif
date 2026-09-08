@@ -1,9 +1,3 @@
-"""Client HTTP centralisé pour les appels du frontend vers backend/core.
-
-Attache automatiquement l'access token Keycloak de l'utilisateur connecté et
-gère proprement les cas d'erreur (backend injoignable, session expirée).
-"""
-
 import os
 
 import requests
@@ -16,7 +10,6 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 class BackendUnavailableError(Exception):
     """Le backend core est injoignable ou a répondu par une erreur inattendue."""
-
 
 def get(path: str, timeout: float = 5.0) -> dict:
     """Appelle GET {BACKEND_URL}{path} avec le token de l'utilisateur connecté."""

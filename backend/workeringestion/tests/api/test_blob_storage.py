@@ -1,8 +1,6 @@
 import logging
 from datetime import datetime, timezone
-
 from azure.core.exceptions import ResourceExistsError
-
 from workeringestion.api import blob_storage
 
 
@@ -42,7 +40,6 @@ async def test_archive_raw_puts_the_date_in_the_blob_path(mock_blob):
 
 
 async def test_archive_raw_never_writes_flat_under_the_prefix(mock_blob):
-    # Sans le découpage par date, l'ETL devrait énumérer tout le conteneur.
     blob_name = await blob_storage.archive_raw('{"site_id": "SITE001"}')
 
-    assert blob_name.count("/") == 4  # measures/AAAA/MM/JJ/<uuid>.json
+    assert blob_name.count("/") == 4

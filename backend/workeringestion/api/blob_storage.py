@@ -12,8 +12,6 @@ AZURE_STORAGE_ACCOUNT = os.environ.get("AZURE_STORAGE_ACCOUNT")
 AZURE_STORAGE_CONTAINER_NAME = os.environ.get("AZURE_STORAGE_CONTAINER_NAME", "raw")
 AZURE_SAS_INGESTION = os.environ.get("AZURE_SAS_INGESTION")
 
-# SAS scopé au conteneur (sr=c) : ContainerClient direct, pas de
-# BlobServiceClient au niveau compte.
 _container_client = ContainerClient.from_container_url(
     f"https://{AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/"
     f"{AZURE_STORAGE_CONTAINER_NAME}?{AZURE_SAS_INGESTION}"
@@ -22,7 +20,6 @@ _container_client = ContainerClient.from_container_url(
 MEASURES_PREFIX = "measures/"
 
 async def archive_raw(raw_json: str) -> str:
-    """Écrit raw_json (texte brut, non reparsé) dans measures/AAAA/MM/JJ/."""
     day = datetime.now(timezone.utc).strftime("%Y/%m/%d")
     blob_name = f"{MEASURES_PREFIX}{day}/{uuid.uuid4()}.json"
     try:

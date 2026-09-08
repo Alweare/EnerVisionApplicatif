@@ -5,8 +5,6 @@ from core.api.schemas import SiteRead
 
 
 class SiteRepository:
-    """Seule couche autorisée à manipuler l'ORM : renvoie des DTO en sortie."""
-
     def __init__(self, db: Session):
         self.db = db
 

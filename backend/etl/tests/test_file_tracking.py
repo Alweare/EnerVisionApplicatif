@@ -31,7 +31,7 @@ def test_get_already_processed_splits_large_lists_into_chunks():
 
     repository.get_already_processed(paths)
 
-    assert db.query.call_count == 3  # 1000 + 1000 + 500
+    assert db.query.call_count == 3
 
 
 def test_filter_new_files_keeps_untracked_paths_in_order():

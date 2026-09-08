@@ -10,8 +10,6 @@ POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "60"))
 
 
 async def poll_once(site_id: str) -> None:
-    """Un cycle pour un site : lit, archive brut, logue. Passe par mock_api
-    directement (texte brut requis, pas un modèle reparsé)."""
     response = await mock_api.get_current_reading_raw(site_id)
 
     if response.status_code == 404:
@@ -31,7 +29,6 @@ async def poll_once(site_id: str) -> None:
 
 
 async def poll_all_sites() -> None:
-    """Un cycle complet : découvre les sites connus, puis poll+archive chacun."""
     site_ids = await mock_api.list_site_ids()
     for site_id in site_ids:
         try:

@@ -18,6 +18,6 @@ def test_get_db_yields_session_and_closes_it(monkeypatch):
     assert db is fake_session
     fake_session.close.assert_not_called()
 
-    gen.close()  # déclenche le bloc finally
+    gen.close()
 
     fake_session.close.assert_called_once()

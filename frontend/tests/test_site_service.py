@@ -1,5 +1,3 @@
-"""Tests de services/site_service.py — appels HTTP vers /api/v1/backend/sites."""
-
 from unittest.mock import Mock, patch
 
 import pytest
