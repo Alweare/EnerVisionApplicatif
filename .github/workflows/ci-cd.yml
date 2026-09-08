@@ -50,7 +50,6 @@ jobs:
             backend/authentication: 'backend/authentication/**'
             backend/etl: 'backend/etl/**'
             backend/prediction: 'backend/prediction/**'
-            backend/recommandation: 'backend/recommandation/**'
             backend/core: 'backend/core/**'
             backend/workeringestion: 'backend/workeringestion/**'
             frontend: 'frontend/**'
@@ -62,10 +61,12 @@ jobs:
           # main = on redéploie tout, changé ou non (garantit un environnement
           # cohérent après un merge develop -> main). Cette liste doit rester
           # synchronisée avec les clés de `filters:` ci-dessus.
+          # backend/recommendation n'a pas encore de Dockerfile (package vide,
+          # jamais buildé) : volontairement absent tant qu'il n'est pas
+          # déployable.
           ALL_SERVICES: >-
             ["backend/authentication","backend/etl","backend/prediction",
-            "backend/recommandation","backend/core","backend/workeringestion",
-            "frontend"]
+            "backend/core","backend/workeringestion","frontend"]
           DEPLOY_ALL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           set -euo pipefail
