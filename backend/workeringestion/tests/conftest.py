@@ -3,10 +3,6 @@ import pytest
 
 from workeringestion.api import blob_storage, mock_api
 
-# Jeux de données figés, calqués sur la forme réelle de la Mock API
-# (vérifiée en direct sur http://10.105.200.45:8000) mais avec des valeurs
-# fixes pour des assertions déterministes en tests.
-
 SITES_JSON = [
     {"site_id": "SITE001", "site_type": "office", "site_name": "Bureau Paris La Défense",
      "location": "Paris, France", "capacity_kw": 200.0, "status": "active"},

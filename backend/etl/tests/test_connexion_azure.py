@@ -2,7 +2,6 @@ import os
 from unittest.mock import patch, MagicMock
 from etl.service.etl_service import ETLService
 
-
 @patch.dict(os.environ, {
     "AZURE_STORAGE_ACCOUNT": "mockaccount",
     "AZURE_SAS_ETL": "mocksastoken"

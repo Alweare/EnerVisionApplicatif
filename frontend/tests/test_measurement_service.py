@@ -1,7 +1,3 @@
-"""Tests de services/measurement_service.py — appels HTTP vers
-/api/v1/backend/sites/{site_id}/current et /measurements.
-"""
-
 from unittest.mock import Mock, patch
 
 import pytest

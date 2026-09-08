@@ -5,8 +5,6 @@ from core.api.schemas import MeasurementRead
 
 
 class MeasurementRepository:
-    """Seule couche autorisée à manipuler l'ORM : renvoie des DTO en sortie."""
-
     def __init__(self, db: Session):
         self.db = db
 

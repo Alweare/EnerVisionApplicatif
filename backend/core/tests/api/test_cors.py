@@ -1,9 +1,3 @@
-"""Vérifie la configuration CORS de l'app (EN-171, dashboard Streamlit).
-
-En test, aucune variable CORS_ALLOWED_ORIGINS n'est posée : l'app utilise donc
-le défaut défini dans main.py (localhost:8501 / 127.0.0.1:8501).
-"""
-
 from unittest.mock import Mock
 
 import pytest

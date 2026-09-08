@@ -33,7 +33,7 @@ def test_main_handles_keyboard_interrupt(mock_session_local, mock_etl_service):
     mock_instance.start_continuous_run.side_effect = KeyboardInterrupt
     mock_etl_service.return_value = mock_instance
 
-    main()  # ne doit pas propager l'exception
+    main()
 
     mock_session_local.return_value.close.assert_called_once()
 

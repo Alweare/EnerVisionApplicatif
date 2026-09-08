@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 from etl.models.measurement import Measurement
 from etl.repository.measurement_repository import MeasurementRepository
 
-
 class MeasurementService:
     def __init__(self, db: Session):
         self.db = db

@@ -106,7 +106,7 @@ def test_load_adds_measurement_without_commit():
 
 def test_list_recent_blob_paths_keeps_only_blobs_within_window():
     service = make_service_with_mock()
-    service.lookback_minutes = 3  # fenêtre étroite : c'est l'objet du test
+    service.lookback_minutes = 3
     service.container_client.list_blobs.return_value = [
         make_blob("measures/old.json", minutes_ago=10),
         make_blob("measures/recent.json", minutes_ago=1),
@@ -115,15 +115,12 @@ def test_list_recent_blob_paths_keeps_only_blobs_within_window():
     paths = service.list_recent_blob_paths()
 
     assert paths == ["measures/recent.json"]
-    # Une fenêtre de 3 minutes ne couvre qu'un jour : un seul préfixe listé.
     service.container_client.list_blobs.assert_called_once_with(
         name_starts_with=f"measures/{datetime.now(timezone.utc):%Y/%m/%d}/"
     )
 
 def test_list_recent_blob_paths_sorts_chronologically():
     service = make_service_with_mock()
-    # Fenêtre étroite pour ne lister qu'un préfixe de jour : le mock renvoie
-    # la même liste pour chaque préfixe, deux jours doubleraient les blobs.
     service.lookback_minutes = 3
     service.container_client.list_blobs.return_value = [
         make_blob("measures/b.json", minutes_ago=1),
@@ -136,7 +133,7 @@ def test_list_recent_blob_paths_sorts_chronologically():
 
 def test_list_recent_blob_paths_uses_explicit_window_over_default():
     service = make_service_with_mock()
-    service.lookback_minutes = 3  # le blob de 30 min doit tomber hors fenêtre
+    service.lookback_minutes = 3
     service.container_client.list_blobs.return_value = [
         make_blob("measures/old.json", minutes_ago=30),
     ]
@@ -217,7 +214,6 @@ def test_process_batch_skips_failing_file_and_keeps_the_rest():
 
     assert service.process_batch(["measures/ko.json", "measures/ok.json"]) is True
 
-    # Seul le fichier lisible est tracé ; l'autre sera rejoué.
     service.file_tracking_service.mark_processed.assert_called_once_with("measures/ok.json")
     service.db.commit.assert_called_once()
 
@@ -289,7 +285,6 @@ def test_forward_fill_looks_back_at_three_records_only():
 
 def test_forward_fill_takes_the_most_recent_non_null_of_the_three():
     service = make_service_with_mock()
-    # Trié du plus récent au plus ancien : le 1er est nul, le 2e porte 21.0.
     service.measurement_service.get_last_measurements.return_value = [
         measurement_with(temperature_celsius=None),
         measurement_with(temperature_celsius=21.0),
@@ -315,8 +310,6 @@ def test_forward_fill_keeps_null_when_the_three_records_are_all_null():
 
 
 def test_forward_fill_no_longer_copies_a_null_from_the_last_record():
-    # Ancien comportement : la valeur de la dernière mesure était reprise même
-    # nulle, ce qui écrasait une valeur disponible juste avant.
     service = make_service_with_mock()
     service.measurement_service.get_last_measurements.return_value = [
         measurement_with(voltage_v=None),
@@ -365,7 +358,6 @@ def test_forward_fill_depth_defaults_to_three():
 
 def test_forward_fill_stops_after_three_consecutive_copies():
     service = make_service_with_mock()
-    # Les 3 derniers enregistrements portent tous une valeur déjà recopiée.
     service.measurement_service.get_last_measurements.return_value = [
         measurement_with(temperature_celsius=22.0,
                          forward_filled_fields=["temperature_celsius"]),
@@ -383,7 +375,6 @@ def test_forward_fill_stops_after_three_consecutive_copies():
 
 def test_forward_fill_still_copies_at_the_third_time():
     service = make_service_with_mock()
-    # Deux recopies seulement : la troisième est encore permise.
     service.measurement_service.get_last_measurements.return_value = [
         measurement_with(temperature_celsius=22.0,
                          forward_filled_fields=["temperature_celsius"]),
@@ -400,8 +391,6 @@ def test_forward_fill_still_copies_at_the_third_time():
 
 def test_a_real_measurement_resets_the_streak():
     service = make_service_with_mock()
-    # Le plus récent est une vraie mesure : le compteur repart de zéro même si
-    # des recopies existent plus loin.
     service.measurement_service.get_last_measurements.return_value = [
         measurement_with(temperature_celsius=25.0),
         measurement_with(temperature_celsius=22.0,
@@ -417,7 +406,6 @@ def test_a_real_measurement_resets_the_streak():
 
 def test_the_streak_is_counted_per_field():
     service = make_service_with_mock()
-    # Température épuisée, tension non : seule la tension doit être comblée.
     recents = [
         measurement_with(temperature_celsius=22.0, voltage_v=400.0,
                          forward_filled_fields=["temperature_celsius"]),
@@ -461,11 +449,9 @@ def test_forward_fill_records_nothing_when_no_field_is_missing():
 
 
 def test_a_null_record_does_not_restart_the_copies():
-    # Piège : après 3 recopies, le champ reste nul. Cet enregistrement nul ne
-    # doit pas être pris pour une vraie mesure, sinon les recopies repartent.
     service = make_service_with_mock()
     service.measurement_service.get_last_measurements.return_value = [
-        measurement_with(temperature_celsius=None),          # le null du cycle 4
+        measurement_with(temperature_celsius=None),
         measurement_with(temperature_celsius=22.0,
                          forward_filled_fields=["temperature_celsius"]),
         measurement_with(temperature_celsius=22.0,
@@ -480,7 +466,7 @@ def test_a_null_record_does_not_restart_the_copies():
 def test_copies_resume_after_the_sensor_comes_back():
     service = make_service_with_mock()
     service.measurement_service.get_last_measurements.return_value = [
-        measurement_with(temperature_celsius=25.0),          # capteur revenu
+        measurement_with(temperature_celsius=25.0),
         measurement_with(temperature_celsius=None),
         measurement_with(temperature_celsius=None),
     ]
@@ -521,9 +507,9 @@ def test_cycles_since_real_value_counts_until_a_real_measurement():
 
     recents = [
         measurement_with(temperature_celsius=22.0,
-                         forward_filled_fields=["temperature_celsius"]),  # recopie
-        measurement_with(temperature_celsius=None),                       # null
-        measurement_with(temperature_celsius=22.0),                       # vraie mesure
+                         forward_filled_fields=["temperature_celsius"]),
+        measurement_with(temperature_celsius=None),
+        measurement_with(temperature_celsius=22.0),
     ]
 
     assert cycles_since_real_value("temperature_celsius", recents) == 2
