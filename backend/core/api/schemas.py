@@ -1,7 +1,10 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
+RecommendationStatus = Literal["pending", "applied", "dismissed"]
 
 
 class SiteRead(BaseModel):
@@ -37,6 +40,32 @@ class MeasurementRead(BaseModel):
     null_reason: list[str] | None
     data_quality: str = Field(examples=["good"])
     created_at: datetime | None
+
+
+class RecommendationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    recommendation_id: UUID
+    site_id: str | None = Field(default=None, examples=["SITE001"])
+    prediction_id: UUID
+    rule_key: str | None = Field(default=None, examples=["peak_over_90pct_capacity"])
+    action_type: str | None = Field(default=None, examples=["shift_load"])
+    message: str | None = Field(
+        default=None,
+        examples=["Pic prévu à 18h00 : 190 kW (capacité 200 kW). Décaler les usages flexibles."],
+    )
+    estimated_gain_kw: float | None = Field(default=None, examples=[20.0])
+    predicted_for: datetime | None = Field(
+        default=None,
+        examples=["2026-09-15T18:00:00"],
+        description="Heure du pic visé",
+    )
+    status: RecommendationStatus = Field(examples=["pending"])
+    created_at: datetime
+
+
+class RecommendationStatusUpdate(BaseModel):
+    status: RecommendationStatus = Field(examples=["applied"])
 
 class AlertRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)

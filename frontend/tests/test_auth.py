@@ -3,6 +3,36 @@ from unittest.mock import MagicMock, patch
 from authentification import auth
 
 
+def test_login_page_shows_button_without_triggering_login():
+    st = MagicMock()
+    st.button.return_value = False
+
+    with patch.object(auth, "st", st):
+        auth.login_page()
+
+    st.login.assert_not_called()
+
+
+def test_login_page_triggers_login_on_button_click():
+    st = MagicMock()
+    st.button.return_value = True
+
+    with patch.object(auth, "st", st):
+        auth.login_page()
+
+    st.login.assert_called_once()
+
+
+def test_require_authentication_passes_through_when_logged_in():
+    st = MagicMock()
+    st.user.is_logged_in = True
+
+    with patch.object(auth, "st", st):
+        auth.require_authentication()
+
+    st.stop.assert_not_called()
+
+
 def test_require_authentication_blocks_when_not_logged_in():
     st = MagicMock()
     st.user.is_logged_in = False
@@ -12,30 +42,6 @@ def test_require_authentication_blocks_when_not_logged_in():
         auth.require_authentication()
 
     st.stop.assert_called_once()
-    st.login.assert_not_called()
-
-
-def test_require_authentication_triggers_login_on_button_click():
-    st = MagicMock()
-    st.user.is_logged_in = False
-    st.button.return_value = True
-
-    with patch.object(auth, "st", st):
-        auth.require_authentication()
-
-    st.login.assert_called_once()
-    st.stop.assert_called_once()
-
-
-def test_require_authentication_allows_access_when_logged_in():
-    st = MagicMock()
-    st.user.is_logged_in = True
-
-    with patch.object(auth, "st", st):
-        auth.require_authentication()
-
-    st.stop.assert_not_called()
-    st.login.assert_not_called()
 
 
 def test_render_user_menu_uses_name_when_available():

@@ -8,10 +8,15 @@ render_logo()
 
 st.title("EnerVision — Dashboard")
 
+from services.api_client import BackendUnavailableError
 from services.measurement_service import get_current_measurement, get_measurement_history
 from services.site_service import get_my_sites
 
-sites = get_my_sites(active_only=True)
+try:
+    sites = get_my_sites(active_only=True)
+except BackendUnavailableError as error:
+    st.error(f"Impossible de récupérer vos sites : {error}")
+    st.stop()
 
 if not sites:
     st.warning("Aucun site associé à votre compte.")
@@ -32,7 +37,11 @@ if preselected_id:
 selected_name = st.selectbox("Site", names_list, index=default_index)
 selected_site_id = site_names[selected_name]
 
-current = get_current_measurement(selected_site_id)
+try:
+    current = get_current_measurement(selected_site_id)
+except BackendUnavailableError:
+    current = None
+    st.warning("Mesure en temps réel indisponible pour le moment.")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -47,7 +56,12 @@ with col2:
         st.metric("Qualité des données", "indisponible")
 
 st.subheader("Historique")
-history = get_measurement_history(selected_site_id)
+try:
+    history = get_measurement_history(selected_site_id)
+except BackendUnavailableError as error:
+    st.error(f"Impossible de récupérer l'historique des mesures : {error}")
+    st.stop()
+
 if not history:
     st.info("Aucune donnée d'historique disponible pour ce site.")
 else:
