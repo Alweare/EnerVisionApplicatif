@@ -24,6 +24,20 @@ class SiteWithCurrentRead(SiteRead):
     data_quality: str | None = Field(default=None, examples=["good"])
 
 
+class PredictionRead(BaseModel):
+    site_id: str = Field(examples=["SITE001"])
+    predicted_consumption_kw: float = Field(examples=[187.3])
+    prediction_date: datetime = Field(
+        description="Horodatage visé par la prédiction.",
+        examples=["2026-09-08T13:00:00"],
+    )
+    model_name: str = Field(examples=["consumption-predictor"])
+    model_version: str | None = Field(default=None, examples=["3"])
+    generated_at: datetime = Field(
+        description="Date de génération de la prédiction par l'API.",
+    )
+
+
 class MeasurementRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
