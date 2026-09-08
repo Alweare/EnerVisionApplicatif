@@ -43,6 +43,26 @@ class PredictionRead(BaseModel):
     )
 
 
+class PredictionPoint(BaseModel):
+    """Un point de la série de projection horaire."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    predicted_for: datetime = Field(examples=["2026-09-08T14:00:00"])
+    predicted_consumption_kw: float | None = Field(default=None, examples=[187.3])
+
+
+class ModelInfo(BaseModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    model_version: str = Field(examples=["v0.1.0-seed"])
+    algorithm: str | None = Field(
+        default=None, examples=["régression linéaire (scikit-learn)"]
+    )
+    trained_at: datetime | None = Field(default=None, examples=["2026-08-28T09:00:00"])
+    mae: float | None = Field(default=None, examples=[8.42])
+
+
 class MeasurementRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -99,3 +119,18 @@ class AlertRead(BaseModel):
     value: float | None = Field(default=None, examples=[812.5])
     threshold: float | None = Field(default=None, examples=[720.0])
     created_at: datetime
+class SitePredictionRead(BaseModel):
+    """Réponse de GET /sites/{site_id}/predictions : la série de projection
+    horaire à venir, le prochain pic prévu, le modèle qui l'a produite, et
+    l'historique récent des mesures pour le tracé."""
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    site_id: str = Field(examples=["SITE001"])
+    prediction: PredictionRead
+    points: list[PredictionPoint] = Field(
+        default_factory=list,
+        description="Prédictions horaires à venir, triées par échéance croissante.",
+    )
+    model: ModelInfo | None = None
+    history: list[MeasurementRead] = Field(default_factory=list)

@@ -4,8 +4,8 @@ import streamlit as st
 
 from formatting import (
     format_date_fr,
+    format_day_time,
     format_number,
-    format_time_of_day,
     site_option_label,
 )
 from services.prediction_service import get_site_prediction
@@ -29,75 +29,95 @@ selected_site_id = st.selectbox(
     format_func=lambda site_id: site_option_label(sites_by_id[site_id]),
 )
 
-data = get_site_prediction(selected_site_id)
 
-if data is None:
-    st.info("Aucune prédiction disponible pour ce site.")
-    st.stop()
+@st.fragment(run_every="60s")
+def show_prediction(site_id: str) -> None:
+    data = get_site_prediction(site_id)
 
-prediction = data["prediction"]
-model = data.get("model")
-history = data.get("history", [])
+    if data is None:
+        st.info("Aucune prédiction disponible pour ce site.")
+        return
 
+    prediction = data["prediction"]
+    points = data.get("points", [])
+    model = data.get("model")
+    history = data.get("history", [])
 
-# --- Pic prévu ---------------------------------------------------------
-with st.container(border=True):
-    st.caption("Pic prévu")
-    value_col, when_col = st.columns([1, 2], vertical_alignment="center")
-    value_col.markdown(
-        f"## {format_number(prediction.get('predicted_consumption_kw'), 'kW')}"
-    )
-    when_col.caption(f"estimé à {format_time_of_day(prediction.get('predicted_for'))}")
-
-
-# --- Historique + projection ----------------------------------------
-st.subheader("Historique + projection")
-
-if history:
-    hist_df = (
-        pd.DataFrame(history)[["measurement_date", "consumption_kw"]]
-        .dropna()
-        .assign(measurement_date=lambda df: pd.to_datetime(df["measurement_date"]))
-    )
-    hist_layer = (
-        alt.Chart(hist_df)
-        .mark_line(color=HISTORIQUE_COLOR)
-        .encode(
-            x=alt.X("measurement_date:T", title=None),
-            y=alt.Y("consumption_kw:Q", title="kW"),
-            tooltip=["measurement_date:T", "consumption_kw:Q"],
+    # --- Prochain pic prévu ------------------------------------------
+    with st.container(border=True):
+        st.caption("Prochain pic prévu")
+        value_col, when_col = st.columns([1, 2], vertical_alignment="center")
+        value_col.markdown(
+            f"## {format_number(prediction.get('predicted_consumption_kw'), 'kW')}"
         )
-    )
-
-    pred_df = pd.DataFrame(
-        [
-            {
-                "predicted_for": pd.to_datetime(prediction["predicted_for"]),
-                "predicted_consumption_kw": prediction.get("predicted_consumption_kw"),
-            }
-        ]
-    )
-    pred_layer = (
-        alt.Chart(pred_df)
-        .mark_point(color=PROJECTION_COLOR, size=140, filled=True)
-        .encode(
-            x="predicted_for:T",
-            y="predicted_consumption_kw:Q",
-            tooltip=["predicted_for:T", "predicted_consumption_kw:Q"],
+        when_col.caption(
+            f"estimé le {format_day_time(prediction.get('predicted_for'))}"
         )
-    )
 
-    st.altair_chart(hist_layer + pred_layer, use_container_width=True)
-    st.caption(
-        f":blue[—] historique  ·  :orange[●] projection (pic prévu)"
-    )
-else:
-    st.info("Pas d'historique de mesures pour tracer la courbe.")
+    # --- Historique + projection horaire ---------------------------
+    st.subheader("Historique + projection")
+
+    frames = []
+    if history:
+        hist_df = pd.DataFrame(history)[["measurement_date", "consumption_kw"]].dropna()
+        hist_df = hist_df.rename(
+            columns={"measurement_date": "ts", "consumption_kw": "kw"}
+        )
+        hist_df["serie"] = "historique"
+        frames.append(hist_df)
+    if points:
+        proj_df = pd.DataFrame(points).rename(
+            columns={"predicted_for": "ts", "predicted_consumption_kw": "kw"}
+        )
+        proj_df["serie"] = "projection"
+        frames.append(proj_df[["ts", "kw", "serie"]])
+
+    if frames:
+        df = pd.concat(frames, ignore_index=True)
+        # `history` a des microsecondes, `points` non -> format ISO8601 mixte.
+        df["ts"] = pd.to_datetime(df["ts"], format="ISO8601")
+        df = df.sort_values("ts")
+
+        try:
+            chart = (
+                alt.Chart(df)
+                .mark_line()
+                .encode(
+                    x=alt.X(
+                        "ts:T",
+                        title=None,
+                        axis=alt.Axis(
+                            tickCount="hour",  # une graduation par heure
+                            format="%Hh",
+                            labelAngle=-45,
+                        ),
+                    ),
+                    y=alt.Y("kw:Q", title="kW"),
+                    color=alt.Color(
+                        "serie:N",
+                        scale=alt.Scale(
+                            domain=["historique", "projection"],
+                            range=[HISTORIQUE_COLOR, PROJECTION_COLOR],
+                        ),
+                        legend=alt.Legend(title=None, orient="top"),
+                    ),
+                    tooltip=["ts:T", "kw:Q", "serie:N"],
+                )
+                .properties(height=340)
+            )
+            st.altair_chart(chart, use_container_width=True)
+        except Exception:  # noqa: BLE001 - repli si le rendu Altair échoue
+            wide = df.pivot_table(index="ts", columns="serie", values="kw")
+            st.line_chart(wide, color=[HISTORIQUE_COLOR, PROJECTION_COLOR])
+    else:
+        st.info("Pas de données à tracer.")
+
+    # --- Modèle ----------------------------------------------------
+    if model:
+        st.caption(
+            f"Modèle entraîné le {format_date_fr(model.get('trained_at'))} — "
+            f"{model.get('algorithm') or '—'}"
+        )
 
 
-# --- Modèle ----------------------------------------------------------
-if model:
-    st.caption(
-        f"Modèle entraîné le {format_date_fr(model.get('trained_at'))} — "
-        f"{model.get('algorithm') or '—'}"
-    )
+show_prediction(selected_site_id)

@@ -10,8 +10,11 @@ from formatting import (
     sort_alerts,
     data_quality_color,
     data_quality_label,
+    format_date_fr,
+    format_day_time,
     format_number,
     format_power_factor,
+    format_time_of_day,
     is_data_reliable,
     peak_within_hours,
     recommendation_confidence,
@@ -195,6 +198,40 @@ def test_format_power_factor_keeps_dot_and_two_decimals():
 
 def test_format_power_factor_handles_none():
     assert format_power_factor(None) == "—"
+
+
+# --- format_time_of_day / format_date_fr ---------------------------
+
+def test_format_time_of_day_from_iso_string():
+    assert format_time_of_day("2026-09-08T18:00:00") == "18:00"
+
+
+def test_format_time_of_day_from_datetime():
+    assert format_time_of_day(datetime(2026, 9, 8, 7, 5)) == "07:05"
+
+
+def test_format_time_of_day_handles_none():
+    assert format_time_of_day(None) == "—"
+
+
+def test_format_date_fr_from_iso_string():
+    assert format_date_fr("2026-08-28T09:00:00") == "28/08/2026"
+
+
+def test_format_date_fr_handles_none():
+    assert format_date_fr(None) == "—"
+
+
+def test_format_day_time_from_iso_string():
+    assert format_day_time("2026-09-09T14:00:00") == "09/09 à 14:00"
+
+
+def test_format_day_time_from_datetime():
+    assert format_day_time(datetime(2026, 9, 9, 7, 5)) == "09/09 à 07:05"
+
+
+def test_format_day_time_handles_none():
+    assert format_day_time(None) == "—"
 
 
 # --- site_option_label ---------------------------------------------

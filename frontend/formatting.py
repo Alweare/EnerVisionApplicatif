@@ -200,6 +200,34 @@ def format_power_factor(value: float | None) -> str:
     return f"{value:.2f}"
 
 
+def format_time_of_day(moment: str | datetime | None) -> str:
+    """Heure d'un horodatage au format `HH:MM` (ex. `18:00`)."""
+    if moment is None:
+        return "—"
+    if isinstance(moment, str):
+        moment = datetime.fromisoformat(moment.replace("Z", "+00:00"))
+    return moment.strftime("%H:%M")
+
+
+def format_date_fr(moment: str | datetime | None) -> str:
+    """Date d'un horodatage au format `JJ/MM/AAAA` (ex. `28/08/2026`)."""
+    if moment is None:
+        return "—"
+    if isinstance(moment, str):
+        moment = datetime.fromisoformat(moment.replace("Z", "+00:00"))
+    return moment.strftime("%d/%m/%Y")
+
+
+def format_day_time(moment: str | datetime | None) -> str:
+    """Jour et heure d'un horodatage au format `JJ/MM à HH:MM`
+    (ex. `09/09 à 14:00`)."""
+    if moment is None:
+        return "—"
+    if isinstance(moment, str):
+        moment = datetime.fromisoformat(moment.replace("Z", "+00:00"))
+    return moment.strftime("%d/%m à %H:%M")
+
+
 def site_option_label(site: dict) -> str:
     name = site.get("site_name") or site.get("site_id") or "Site"
     location = site.get("location")
