@@ -23,7 +23,6 @@ def test_baseline_mae_is_zero_when_lag_1h_perfectly_predicts_target():
 def test_baseline_mae_matches_manual_computation():
     X = pd.DataFrame({"lag_1h": [1.0, 2.0, 3.0]})
     y = pd.Series([2.0, 2.0, 6.0])
-    # |1-2| + |2-2| + |3-6| = 1 + 0 + 3 = 4 -> mean = 4/3
     assert baseline_mae(X, y) == pytest.approx(4 / 3)
 
 

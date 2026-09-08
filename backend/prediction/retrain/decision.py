@@ -4,12 +4,7 @@ from dataclasses import dataclass
 
 from prediction.drift.drift_service import DriftResult
 
-# Une MAE réelle récente dépassant la MAE enregistrée au moment de la
-# promotion de plus de ce facteur est considérée comme une dégradation
-# justifiant un réentraînement. Constante interne (pas une variable d'env) :
-# c'est un détail d'implémentation de la règle de décision, pas un paramètre
-# métier à faire varier par environnement.
-PERFORMANCE_DEGRADATION_FACTOR = 1.2
+REAL_PERFORMANCE_DEGRADATION_FACTOR = 1.2
 
 
 @dataclass(frozen=True)
@@ -46,7 +41,7 @@ def should_retrain(
     if (
         real_performance is not None
         and real_performance.reference_mae > 0
-        and real_performance.real_mae > real_performance.reference_mae * PERFORMANCE_DEGRADATION_FACTOR
+        and real_performance.real_mae > real_performance.reference_mae * REAL_PERFORMANCE_DEGRADATION_FACTOR
     ):
         reasons.append("real_performance_degraded")
 

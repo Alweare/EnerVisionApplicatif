@@ -24,9 +24,6 @@ HORIZON_ROWS = ROWS_PER_HOUR
 # historiques comparables entre sites, à revoir en split par site sinon.
 DEFAULT_CUTOFF_RATIO = 0.8
 
-# 70 / 15 / 15 : passé -> train, futur proche -> validation (comparaison
-# challenger/champion, référence de drift), futur plus récent -> test (métrique
-# de promotion). Jamais de split aléatoire sur une série temporelle.
 DEFAULT_TRAIN_RATIO = 0.7
 DEFAULT_VALIDATION_RATIO = 0.15
 
@@ -48,11 +45,6 @@ def build_dataset() -> pd.DataFrame:
 
 
 def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Retire les lignes à feature ou cible manquante (aucune imputation), triées
-    par date. Base commune aux différents découpages et aux calculs de drift /
-    volume de nouvelles données.
-    """
     df = df.dropna(subset=FEATURE_COLUMNS + [TARGET_COLUMN])
     return df.sort_values("measurement_date")
 
@@ -60,12 +52,6 @@ def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:
 def _split_by_cutoffs(
     df: pd.DataFrame, cumulative_ratios: list[float]
 ) -> list[pd.DataFrame]:
-    """
-    Découpe `df` (déjà nettoyé) en `len(cumulative_ratios) + 1` tranches
-    chronologiques contiguës. `cumulative_ratios` sont des fractions cumulées
-    croissantes (ex. `[0.7, 0.85]` -> train 70 %, validation 15 %, test 15 %).
-    Chaque tranche doit être non vide.
-    """
     if len(df) < len(cumulative_ratios) + 1:
         raise NotEnoughDataError(
             f"{len(df)} ligne(s) exploitable(s) après nettoyage, minimum "
@@ -100,7 +86,6 @@ def _split_by_cutoffs(
 def _split_by_cutoff(
     df: pd.DataFrame, cutoff_ratio: float
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(train, test) sur une date de coupure unique, cf. `_split_by_cutoffs`."""
     train, test = _split_by_cutoffs(clean_dataset(df), [cutoff_ratio])
     return train, test
 
@@ -126,16 +111,6 @@ def split_train_val_test(
     train_ratio: float = DEFAULT_TRAIN_RATIO,
     validation_ratio: float = DEFAULT_VALIDATION_RATIO,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    (train, validation, test) chronologiques et disjoints, à partir de
-    `build_dataset()`. Chaque `DataFrame` conserve toutes les colonnes (features,
-    cible, `site_id`, `measurement_date`) pour permettre calculs de baseline,
-    de drift et de statistiques de dataset en aval.
-
-    PASSÉ -> train, futur proche -> validation, futur plus récent -> test.
-    Le test n'est jamais utilisé pour décider quoi que ce soit avant l'évaluation
-    finale : aucune fuite de données entre les trois ensembles.
-    """
     train, validation, test = _split_by_cutoffs(
         clean_dataset(df), [train_ratio, train_ratio + validation_ratio]
     )

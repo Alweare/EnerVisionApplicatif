@@ -137,8 +137,6 @@ def test_split_train_test_returns_only_feature_columns():
     assert len(X_test) == len(y_test)
 
 
-# --- split_train_val_test : split temporel à trois voies -----------------
-
 def test_split_train_val_test_is_chronological_and_disjoint():
     train, validation, test = split_train_val_test(_dataset_frame(1000))
 
@@ -181,8 +179,6 @@ def test_split_train_val_test_no_row_used_in_more_than_one_split():
     assert not (train_dates & test_dates)
     assert len(train) + len(validation) + len(test) == len(df)
 
-
-# --- clean_dataset : nettoyage partagé -------------------------------
 
 def test_clean_dataset_drops_missing_feature_or_target_and_sorts():
     df = _dataset_frame(100)
