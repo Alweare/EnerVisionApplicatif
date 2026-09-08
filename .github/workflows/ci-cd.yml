@@ -47,7 +47,6 @@ jobs:
         uses: dorny/paths-filter@v4
         with:
           filters: |
-            backend/authentication: 'backend/authentication/**'
             backend/etl: 'backend/etl/**'
             backend/prediction: 'backend/prediction/**'
             backend/core: 'backend/core/**'
@@ -63,9 +62,11 @@ jobs:
           # synchronisée avec les clés de `filters:` ci-dessus.
           # backend/recommendation n'a pas encore de Dockerfile (package vide,
           # jamais buildé) : volontairement absent tant qu'il n'est pas
-          # déployable.
+          # déployable. authentication/ (ex backend/authentication) n'est pas
+          # non plus dans cette liste : Keycloak est géré hors de ce repo,
+          # jamais redéployé automatiquement (voir deploy.sh, qui le rejette).
           ALL_SERVICES: >-
-            ["backend/authentication","backend/etl","backend/prediction",
+            ["backend/etl","backend/prediction",
             "backend/core","backend/workeringestion","frontend"]
           DEPLOY_ALL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
@@ -131,8 +132,8 @@ jobs:
 
       # actions/setup-python avec cache: pip exige de trouver au moins un
       # requirements*.txt : plante avant même d'atteindre la vérification
-      # plus bas pour les services sans code Python (ex. backend/authentication,
-      # un simple wrapper Docker autour de l'image Keycloak).
+      # plus bas pour un service sans code Python (aucun cas actuel dans la
+      # matrice, gardé par sécurité si un futur package n'en a pas).
       - name: Check for Python files
         id: check
         env:

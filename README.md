@@ -30,7 +30,10 @@ est un conteneur indépendant, avec son propre `Dockerfile` :
 `consumption`, `prediction`, `recommendation` n'ont pour l'instant ni
 `main.py` ni `Dockerfile` : ce sont du code utilisé par d'autres services
 (ex. `etl` par `workeringestion`), pas encore des services à part entière.
-`backend/authentication` est un dossier vide, sans usage actuel.
+`authentication/` (à la racine, hors de `backend/`) buildé l'image Keycloak
+"prod-style" (profile `prod`, jamais démarrée par défaut) — Keycloak en
+production est géré indépendamment de ce repo et n'est jamais redéployé
+par la CI/CD (voir `deploy.sh`).
 
 ## Authentification
 
