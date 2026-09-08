@@ -58,7 +58,7 @@ def test_forward_fill_fills_missing_field_from_last_measurement():
 
     assert cleaned["temperature_celsius"] == 20.0
     assert cleaned["humidity_percent"] == 50.0
-    assert cleaned["consumption_kw"] == 87.34  # not changed
+    assert cleaned["consumption_kw"] == 87.34
 
 def test_forward_fill_keeps_null_when_no_previous_measurement():
     service = make_service_with_mock()
