@@ -7,9 +7,9 @@ from fastapi.testclient import TestClient
 
 from core.api.schemas import (
     ModelInfo,
+    HistoryPoint,
     PredictionPoint,
     PredictionRead,
-    MeasurementRead,
     SitePredictionRead,
 )
 from core.api.service.prediction_service import (
@@ -39,21 +39,10 @@ def prediction_service(monkeypatch):
     return fake
 
 
-def _measurement(site_id: str = "SITE001") -> MeasurementRead:
-    return MeasurementRead(
-        measurement_id=uuid4(),
-        site_id=site_id,
-        measurement_date=datetime(2026, 9, 8, 9, 0, 0),
-        consumption_kw=104.47,
-        consumption_kwh=104.47,
-        voltage_v=402.6,
-        current_a=163.9,
-        power_factor=0.914,
-        temperature_celsius=None,
-        humidity_percent=61.0,
-        null_reason=None,
-        data_quality="good",
-        created_at=datetime(2026, 9, 8, 9, 0, 1),
+def _history_point(hour: int = 9, consumption_kw: float = 104.47) -> HistoryPoint:
+    return HistoryPoint(
+        measured_at=datetime(2026, 9, 8, hour, 0, 0),
+        consumption_kw=consumption_kw,
     )
 
 
@@ -84,7 +73,7 @@ def _site_prediction(site_id: str = "SITE001") -> SitePredictionRead:
             trained_at=datetime(2026, 8, 28, 9, 0, 0),
             mae=8.42,
         ),
-        history=[_measurement(site_id)],
+        history=[_history_point(8), _history_point(9)],
     )
 
 
@@ -102,26 +91,29 @@ def test_get_site_predictions_returns_200_with_bundle(prediction_service):
     assert body["prediction"]["predicted_for"] == "2026-09-08T18:00:00"
     assert [p["predicted_consumption_kw"] for p in body["points"]] == [120.0, 145.0]
     assert body["model"]["algorithm"] == "régression linéaire (scikit-learn)"
-    assert len(body["history"]) == 1
+    assert [h["measured_at"] for h in body["history"]] == [
+        "2026-09-08T08:00:00",
+        "2026-09-08T09:00:00",
+    ]
     prediction_service.get_prediction.assert_called_once_with(
-        "SITE001", history_limit=200
+        "SITE001", history_hours=24
     )
 
 
-def test_get_site_predictions_forwards_history_limit(prediction_service):
+def test_get_site_predictions_forwards_history_hours(prediction_service):
     prediction_service.get_prediction.return_value = _site_prediction()
 
-    client.get("/api/v1/backend/sites/SITE001/predictions?history_limit=24")
+    client.get("/api/v1/backend/sites/SITE001/predictions?history_hours=48")
 
     prediction_service.get_prediction.assert_called_once_with(
-        "SITE001", history_limit=24
+        "SITE001", history_hours=48
     )
 
 
 @pytest.mark.parametrize(
-    "query", ["history_limit=-1", "history_limit=2001", "history_limit=abc"]
+    "query", ["history_hours=0", "history_hours=169", "history_hours=abc"]
 )
-def test_get_site_predictions_rejects_invalid_history_limit(prediction_service, query):
+def test_get_site_predictions_rejects_invalid_history_hours(prediction_service, query):
     prediction_service.get_prediction.return_value = _site_prediction()
 
     response = client.get(f"/api/v1/backend/sites/SITE001/predictions?{query}")

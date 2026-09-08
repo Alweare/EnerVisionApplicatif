@@ -14,6 +14,9 @@ from services.site_service import get_sites
 HISTORIQUE_COLOR = "#4c78a8"
 PROJECTION_COLOR = "#f58518"
 
+# Fenêtre d'historique affichée (déjà agrégée à l'heure côté API).
+HISTORY_HOURS = 24
+
 st.header("Prédictions")
 
 sites = get_sites()
@@ -32,7 +35,7 @@ selected_site_id = st.selectbox(
 
 @st.fragment(run_every="60s")
 def show_prediction(site_id: str) -> None:
-    data = get_site_prediction(site_id)
+    data = get_site_prediction(site_id, history_hours=HISTORY_HOURS)
 
     if data is None:
         st.info("Aucune prédiction disponible pour ce site.")
@@ -59,24 +62,22 @@ def show_prediction(site_id: str) -> None:
 
     frames = []
     if history:
-        hist_df = pd.DataFrame(history)[["measurement_date", "consumption_kw"]].dropna()
-        hist_df = hist_df.rename(
-            columns={"measurement_date": "ts", "consumption_kw": "kw"}
+        hist_df = pd.DataFrame(history).rename(
+            columns={"measured_at": "ts", "consumption_kw": "kw"}
         )
+        hist_df["ts"] = pd.to_datetime(hist_df["ts"], format="ISO8601")
         hist_df["serie"] = "historique"
-        frames.append(hist_df)
+        frames.append(hist_df[["ts", "kw", "serie"]])
     if points:
         proj_df = pd.DataFrame(points).rename(
             columns={"predicted_for": "ts", "predicted_consumption_kw": "kw"}
         )
+        proj_df["ts"] = pd.to_datetime(proj_df["ts"], format="ISO8601")
         proj_df["serie"] = "projection"
         frames.append(proj_df[["ts", "kw", "serie"]])
 
     if frames:
-        df = pd.concat(frames, ignore_index=True)
-        # `history` a des microsecondes, `points` non -> format ISO8601 mixte.
-        df["ts"] = pd.to_datetime(df["ts"], format="ISO8601")
-        df = df.sort_values("ts")
+        df = pd.concat(frames, ignore_index=True).sort_values("ts")
 
         try:
             chart = (

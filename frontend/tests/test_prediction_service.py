@@ -33,21 +33,21 @@ def test_get_site_prediction_calls_expected_url_and_returns_json(mock_get):
 
     mock_get.assert_called_once_with(
         f"{BACKEND_URL}/api/v1/backend/sites/SITE001/predictions",
-        params={"history_limit": 200},
+        params={"history_hours": 24},
         timeout=10,
     )
     assert result == payload
 
 
 @patch("services.prediction_service.requests.get")
-def test_get_site_prediction_forwards_custom_history_limit(mock_get):
+def test_get_site_prediction_forwards_custom_history_hours(mock_get):
     mock_get.return_value = _mock_response({})
 
-    get_site_prediction("SITE001", history_limit=24)
+    get_site_prediction("SITE001", history_hours=48)
 
     mock_get.assert_called_once_with(
         f"{BACKEND_URL}/api/v1/backend/sites/SITE001/predictions",
-        params={"history_limit": 24},
+        params={"history_hours": 48},
         timeout=10,
     )
 

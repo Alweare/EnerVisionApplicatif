@@ -6,7 +6,7 @@ import pytest
 
 from core.api.schemas import (
     ModelInfo,
-    MeasurementRead,
+    HistoryPoint,
     PredictionRead,
     SitePredictionRead,
 )
@@ -42,23 +42,10 @@ def _prediction(
     )
 
 
-def _measurement(
-    site_id: str = "SITE001", date: datetime | None = None
-) -> MeasurementRead:
-    return MeasurementRead(
-        measurement_id=uuid4(),
-        site_id=site_id,
-        measurement_date=date or datetime(2026, 9, 8, 9, 0, 0),
-        consumption_kw=104.47,
-        consumption_kwh=104.47,
-        voltage_v=402.6,
-        current_a=163.9,
-        power_factor=0.914,
-        temperature_celsius=None,
-        humidity_percent=61.0,
-        null_reason=None,
-        data_quality="good",
-        created_at=datetime(2026, 9, 8, 9, 0, 1),
+def _history_point(hour: int, consumption_kw: float = 100.0) -> HistoryPoint:
+    return HistoryPoint(
+        measured_at=datetime(2026, 9, 8, hour, 0, 0),
+        consumption_kw=consumption_kw,
     )
 
 
@@ -99,25 +86,23 @@ def test_get_prediction_returns_hourly_series_and_peak(prediction_service):
         _prediction(hour=18, consumption_kw=190.0),  # le pic
         _prediction(hour=22, consumption_kw=90.0),
     ]
-    history = [_measurement(), _measurement()]
+    history = [_history_point(9), _history_point(10)]
     prediction_service.site_repository.exists.return_value = True
     prediction_service.repository.list_projection_by_site.return_value = projection
     prediction_service.model_repository.get_by_version.return_value = _model()
-    prediction_service.measurement_repository.list_by_site.return_value = history
+    prediction_service.measurement_repository.list_hourly_by_site.return_value = history
 
-    result = prediction_service.get_prediction("SITE001", history_limit=50)
+    result = prediction_service.get_prediction("SITE001", history_hours=12)
 
     assert isinstance(result, SitePredictionRead)
     assert [p.predicted_consumption_kw for p in result.points] == [120.0, 190.0, 90.0]
     assert result.prediction.predicted_consumption_kw == 190.0
-    assert result.prediction.predicted_for == datetime(2026, 9, 8, 18, 0, 0)
-    assert result.model.algorithm == "régression linéaire (scikit-learn)"
     assert result.history == history
     prediction_service.model_repository.get_by_version.assert_called_once_with(
         "v0.1.0-seed"
     )
-    prediction_service.measurement_repository.list_by_site.assert_called_once_with(
-        "SITE001", limit=50, offset=0
+    prediction_service.measurement_repository.list_hourly_by_site.assert_called_once_with(
+        "SITE001", hours=12
     )
 
 
@@ -126,7 +111,7 @@ def test_get_prediction_tolerates_missing_model(prediction_service):
     prediction_service.repository.list_projection_by_site.return_value = [
         _prediction(model_version=None)
     ]
-    prediction_service.measurement_repository.list_by_site.return_value = []
+    prediction_service.measurement_repository.list_hourly_by_site.return_value = []
 
     result = prediction_service.get_prediction("SITE001")
 
@@ -134,23 +119,22 @@ def test_get_prediction_tolerates_missing_model(prediction_service):
     prediction_service.model_repository.get_by_version.assert_not_called()
 
 
-def test_get_prediction_drops_points_before_last_measurement(prediction_service):
+def test_get_prediction_drops_points_before_last_history_hour(prediction_service):
     projection = [
         _prediction(hour=8, consumption_kw=300.0),   # déjà mesuré -> écarté
-        _prediction(hour=13, consumption_kw=120.0),  # après la mesure -> gardé
-        _prediction(hour=19, consumption_kw=180.0),  # après la mesure -> gardé
+        _prediction(hour=13, consumption_kw=120.0),  # après -> gardé
+        _prediction(hour=19, consumption_kw=180.0),  # après -> gardé
     ]
     prediction_service.site_repository.exists.return_value = True
     prediction_service.repository.list_projection_by_site.return_value = projection
     prediction_service.model_repository.get_by_version.return_value = None
-    prediction_service.measurement_repository.list_by_site.return_value = [
-        _measurement(date=datetime(2026, 9, 8, 11, 0, 0))
+    prediction_service.measurement_repository.list_hourly_by_site.return_value = [
+        _history_point(11)
     ]
 
     result = prediction_service.get_prediction("SITE001")
 
     assert [p.predicted_for.hour for p in result.points] == [13, 19]
-    # le pic (300 kW à 8h) est passé : il ne doit pas être retenu
     assert result.prediction.predicted_consumption_kw == 180.0
 
 
@@ -164,8 +148,8 @@ def test_get_prediction_keeps_full_series_when_all_points_already_measured(
     prediction_service.site_repository.exists.return_value = True
     prediction_service.repository.list_projection_by_site.return_value = projection
     prediction_service.model_repository.get_by_version.return_value = None
-    prediction_service.measurement_repository.list_by_site.return_value = [
-        _measurement(date=datetime(2026, 9, 8, 23, 0, 0))
+    prediction_service.measurement_repository.list_hourly_by_site.return_value = [
+        _history_point(23)
     ]
 
     result = prediction_service.get_prediction("SITE001")

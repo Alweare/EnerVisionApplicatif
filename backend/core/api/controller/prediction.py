@@ -18,10 +18,10 @@ router = APIRouter(prefix="/api/v1/backend/sites", tags=["Predictions"])
     response_model=SitePredictionRead,
     summary="Prédiction de consommation d'un site",
     description=(
-        "Retourne le pic de consommation prévu pour un site (échéance la plus "
-        "chargée à venir), le modèle qui l'a produit, et l'historique récent "
-        "des mesures pour le tracé. Les prédictions sont précalculées à partir "
-        "du modèle MLflow et stockées dans `ener.prediction`."
+        "Retourne la projection horaire à venir, le prochain pic prévu, le "
+        "modèle qui l'a produite, et l'historique récent agrégé à l'heure pour "
+        "le tracé. Les prédictions sont précalculées à partir du modèle MLflow "
+        "et stockées dans `ener.prediction`."
     ),
     responses={
         404: {
@@ -36,12 +36,12 @@ router = APIRouter(prefix="/api/v1/backend/sites", tags=["Predictions"])
 )
 def get_site_predictions(
     site_id: str,
-    history_limit: int = Query(default=200, ge=0, le=2000),
+    history_hours: int = Query(default=24, ge=1, le=168),
     db: Session = Depends(get_db),
 ) -> SitePredictionRead:
     service = PredictionService(db)
     try:
-        return service.get_prediction(site_id, history_limit=history_limit)
+        return service.get_prediction(site_id, history_hours=history_hours)
     except SiteNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except PredictionNotAvailableError as error:

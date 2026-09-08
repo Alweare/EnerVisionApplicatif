@@ -9,7 +9,7 @@ from core.api.service.site_service import SiteNotFoundError
 
 __all__ = ["PredictionService", "PredictionNotAvailableError", "SiteNotFoundError"]
 
-DEFAULT_HISTORY_LIMIT = 200
+DEFAULT_HISTORY_HOURS = 24
 
 
 class PredictionNotAvailableError(Exception):
@@ -32,7 +32,7 @@ class PredictionService:
         self.model_repository = ModelRepository(db)
 
     def get_prediction(
-        self, site_id: str, history_limit: int = DEFAULT_HISTORY_LIMIT
+        self, site_id: str, history_hours: int = DEFAULT_HISTORY_HOURS
     ) -> SitePredictionRead:
         if not self.site_repository.exists(site_id):
             raise SiteNotFoundError(site_id)
@@ -41,16 +41,15 @@ class PredictionService:
         if not projection:
             raise PredictionNotAvailableError(site_id)
 
-        history = self.measurement_repository.list_by_site(
-            site_id, limit=history_limit, offset=0
+        history = self.measurement_repository.list_hourly_by_site(
+            site_id, hours=history_hours
         )
 
         # La projection ne doit couvrir que le futur : on écarte les points
-        # antérieurs à la dernière mesure connue (référentiels horaires
-        # potentiellement décalés). Repli sur la série complète si le filtre
-        # ne laisse rien.
+        # antérieurs à la dernière heure d'historique connue. Repli sur la
+        # série complète si le filtre ne laisse rien.
         if history:
-            last_measured = max(m.measurement_date for m in history)
+            last_measured = max(h.measured_at for h in history)
             upcoming = [p for p in projection if p.predicted_for > last_measured]
             if upcoming:
                 projection = upcoming
