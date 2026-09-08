@@ -16,10 +16,9 @@ except BackendUnavailableError:
 else:
     st.sidebar.caption(f"Identité vérifiée par l'API : {me.get('username') or me.get('sub')}")
 
-st.title("EnerVision — Dashboard")
+dashboard_page = st.Page("pages/dashboard.py", title="Dashboard", default=True)
+sites_page = st.Page("pages/sites.py", title="Sites")
 
-dashboard_page = st.Page("pages/Dashboard.py", title="Dashboard", default=True)
-alertes_page = st.Page("pages/Alertes.py", title="Alertes")
 
-pg = st.navigation([dashboard_page, alertes_page])
+pg = st.navigation([dashboard_page, sites_page])
 pg.run()

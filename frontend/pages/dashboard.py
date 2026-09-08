@@ -1,5 +1,7 @@
 import streamlit as st
 
+st.title("EnerVision — Dashboard")
+
 from services.measurement_service import get_current_measurement, get_measurement_history
 from services.site_service import get_my_sites
 
