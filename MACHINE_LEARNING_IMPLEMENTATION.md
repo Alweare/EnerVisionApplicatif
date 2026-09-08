@@ -71,6 +71,20 @@ backend/prediction/
 `main.py` (devient un vrai CLI à sous-commandes), `Dockerfile`
 (sert l'API par défaut).
 
+**Modifiés pour le correctif MLflow/artefacts** (voir §MLflow — Architecture
+des artefacts pour le détail) : `training/training_service.py`
+(`log_model(name=...)`, `train_model` renvoie aussi `model_uri`),
+`registry/model_registry.py` (`register_challenger` prend `model_uri` au
+lieu de reconstruire une URI `runs:/`, nouvelle exception
+`ChampionLoadError`), `training/pipeline.py` (champion cassé n'interrompt
+plus l'entraînement, tag `recovered_from_broken_champion`),
+`retrain/decision.py` et `retrain/orchestrator.py` (nouvelle raison
+`champion_unavailable`), `api/controller/prediction.py` (distingue
+`ChampionLoadError` de `NoChampionModelError`, toujours `503`),
+`docker-compose-data.yaml` (`mlflow` : `--serve-artifacts`/`--artifacts-destination`
+au lieu de `--default-artifact-root`, healthcheck), `docker-compose.yaml`
+(`prediction` attend `mlflow: condition: service_healthy`).
+
 **Non modifiés** : `features/time_features.py` (aucun bug détecté — voir
 §Dataset), `repository/measurement_repository.py`.
 
@@ -239,6 +253,11 @@ correspond à une responsabilité listée explicitement dans le besoin
     `> 1.2 ×` sa MAE enregistrée à la promotion (facteur interne au code,
     pas une variable d'environnement : c'est un détail d'implémentation de
     la règle, pas un paramètre métier à faire varier par déploiement).
+  - `champion_unavailable` — un champion est enregistré (alias `champion`
+    présent, `ModelVersion` à l'état `READY`) mais son artefact modèle n'a
+    pas pu être chargé (`registry.ChampionLoadError`, voir §MLflow —
+    Robustesse champion cassé). Détecté par `train_if_needed` via un essai
+    de chargement dédié, distinct de la simple présence de l'alias.
 - **`retrain/signals.py`** fournit les deux entrées "réelles" que la config
   seule ne peut pas donner :
   - `count_new_rows_since_champion` — compte les lignes de
@@ -247,11 +266,16 @@ correspond à une responsabilité listée explicitement dans le besoin
     date la plus récente du dataset utilisé.
   - `compute_real_performance` — voir section suivante.
 - **`retrain/orchestrator.train_if_needed()`** enchaîne : construire le
-  dataset → chercher le champion → calculer le drift (test set) → calculer
+  dataset → chercher le champion → **essayer de le charger** (détection de
+  `champion_unavailable`) → calculer le drift (test set) → calculer
   les deux signaux → `should_retrain(...)` → logger la décision → **ne rien
   faire** si `should_retrain=False`, sinon appeler
   `training.pipeline.run_training_pipeline(trigger_source="cli_train_if_needed",
-  retrain_reasons=decision.reasons)`.
+  retrain_reasons=decision.reasons)`. L'essai de chargement du champion
+  déserialise réellement le modèle (coût négligeable pour une
+  `LinearRegression`) : c'est la seule façon fiable de détecter un artefact
+  cassé, une vérification de métadonnées seule (alias présent, version
+  `READY`) ne suffit pas — voir §MLflow.
 
 ### Performance réelle en production (§13 du besoin)
 
@@ -375,6 +399,14 @@ existant suffisait.
 
 ## MLflow
 
+**Version installée : MLflow 3.16.0** (`mlflow/Dockerfile: FROM ghcr.io/mlflow/mlflow:v3.16.0`,
+`backend/prediction/requirements.txt: mlflow`, résolu à `3.16.0` — confirmé
+par `python -c "import mlflow; print(mlflow.__version__)"` dans
+l'environnement de test). Toutes les décisions ci-dessous sont vérifiées
+contre cette version précise (le comportement du Model Registry, des
+*LoggedModels* et du mode `--serve-artifacts` a changé plusieurs fois entre
+MLflow 2.x et 3.x).
+
 - **Experiment** : `consumption-prediction` (`MLFLOW_EXPERIMENT_NAME`).
 - **Registered Model** : `consumption-predictor` (`MLFLOW_MODEL_NAME`).
 - **Un run par entraînement** (`training/pipeline.run_training_pipeline`),
@@ -397,26 +429,204 @@ existant suffisait.
     (texte explicite : *"candidate mae=... does not beat baseline_mae=...
     by the required 5.0% (actual=...)"*, etc.).
   - **Model Registry** : le run est enregistré comme nouvelle version
-    (`register_challenger`) — jamais automatiquement via
-    `registered_model_name` sur `log_model` (voir §Modèle) — puis
-    **explicitement** promue (alias `champion`, ancien alias `challenger`
-    retiré) ou rejetée (alias `challenger` retiré, tags `rejected=true`).
-    **Aucune version n'est jamais supprimée** : promotion/rejet ne touchent
-    que des alias et des tags.
+    (`register_challenger`, à partir de l'URI réellement renvoyée par
+    `train_model` — voir §Architecture des artefacts ci-dessous) — jamais
+    automatiquement via `registered_model_name` sur `log_model` (voir
+    §Modèle) — puis **explicitement** promue (alias `champion`, ancien alias
+    `challenger` retiré) ou rejetée (alias `challenger` retiré, tags
+    `rejected=true`). **Aucune version n'est jamais supprimée** :
+    promotion/rejet ne touchent que des alias et des tags.
 - **Champion/Challenger** : implémenté avec les **alias** du Model Registry
   (`client.set_registered_model_alias`, `get_model_version_by_alias`,
-  `delete_registered_model_alias` — API moderne, pas les *stages* dépréciés).
+  `delete_registered_model_alias` — API moderne, pas les *stages* dépréciés,
+  qui sont dépréciés depuis MLflow 2.9 et toujours dépréciés en 3.16).
   `registry/model_registry.py` centralise ces appels.
 - **Promotion/rejet** — logique dans `training/pipeline._decide_promotion` :
   1. Si `mae_improvement_vs_baseline < MIN_IMPROVEMENT_VS_BASELINE` → **rejet**,
      quel que soit le champion.
   2. Sinon, si aucun champion n'existe → **promotion** (premier champion).
-  3. Sinon, si `mae_improvement_vs_champion >= MIN_IMPROVEMENT_VS_CHAMPION` →
+  3. Sinon, si le champion existant est enregistré mais que son artefact
+     n'a pas pu être chargé (`champion_unavailable`, voir ci-dessous) →
+     **promotion** explicitement taguée `recovered_from_broken_champion=true`
+     (le candidat bat déjà la baseline à cette étape ; il n'y a rien de
+     valide à comparer côté champion).
+  4. Sinon, si `mae_improvement_vs_champion >= MIN_IMPROVEMENT_VS_CHAMPION` →
      **promotion** (le champion actuel est remplacé).
-  4. Sinon → **rejet**, champion inchangé.
+  5. Sinon → **rejet**, champion inchangé.
 - **Historique** : `tests/test_training_pipeline.py::test_history_of_all_versions_is_preserved`
   vérifie explicitement qu'après deux promotions successives, la première
   version reste consultable via `client.get_model_version(...)`.
+
+### Architecture des artefacts : pourquoi un simple `MLFLOW_TRACKING_URI` ne suffit pas
+
+MLflow sépare deux choses that il est facile de confondre :
+
+- les **métadonnées** (runs, paramètres, métriques, tags, versions de
+  modèle, alias) — toujours servies via l'API REST du tracking server,
+  peu importe la configuration ;
+- les **artefacts** (le `.skops`/`.pkl` du modèle, `MLmodel`,
+  `drift_reference.json`, …) — leur mode de service dépend **entièrement**
+  de la configuration du serveur.
+
+Un serveur MLflow peut soit (a) dire au client "voici l'URI de stockage,
+débrouille-toi" (le client télécharge/upload directement, avec son propre
+accès filesystem/S3/etc.), soit (b) **proxier** lui-même les artefacts via
+son API REST (`--serve-artifacts`), auquel cas le client n'a jamais besoin
+d'accéder au stockage sous-jacent — il ne parle qu'au tracking server en
+HTTP. C'est le mode (b) qu'il faut pour une architecture multi-conteneurs où
+seul le conteneur `mlflow` a accès au volume `/mlflow-artifacts`.
+
+Le service `mlflow` (`docker-compose-data.yaml`) est configuré ainsi :
+
+```
+mlflow server
+  --backend-store-uri postgresql://...
+  --artifacts-destination /mlflow-artifacts
+  --serve-artifacts
+  --host 0.0.0.0
+  --port 5000
+```
+
+`--serve-artifacts` est en réalité **activé par défaut** dans MLflow 3.16
+(`mlflow server --help` : *"Default: True"*) — mais un `--default-artifact-root`
+pointant vers un **chemin filesystem brut** (comme l'ancienne configuration
+`--default-artifact-root /mlflow-artifacts`) **écrase ce comportement** pour
+toute nouvelle expérience : celle-ci reçoit un `artifact_location` de la
+forme `/mlflow-artifacts/<experiment_id>` (un chemin, pas un schéma proxifié),
+et le client résout alors ses artefacts via un `LocalArtifactRepository`
+**directement sur son propre filesystem** — exactement le bug rapporté. La
+configuration correcte n'utilise **pas** `--default-artifact-root` ; elle
+utilise `--artifacts-destination` (qui ne fixe *que* la résolution
+côté serveur pour le schéma proxy `mlflow-artifacts:/`, sans jamais être
+exposée telle quelle au client) combinée à `--serve-artifacts`. Avec cette
+configuration, une **nouvelle** expérience reçoit un `artifact_location` de
+la forme `mlflow-artifacts:/<experiment_id>` : tout accès passe alors par
+`http://mlflow:5000/api/2.0/mlflow-artifacts/artifacts/...`, jamais par un
+chemin local.
+
+**Point critique, vérifié empiriquement avec cette version** : `mlflow
+server --help` le dit explicitement — *"Note that this flag [`--default-artifact-root`]
+does not impact already-created experiments with any previous configuration
+of an MLflow server instance."* Une expérience **déjà créée** sous l'ancienne
+configuration garde pour toujours son `artifact_location` en chemin brut,
+même après correction de la commande serveur — **il n'existe aucune API
+MLflow publique pour changer `artifact_location` a posteriori**
+(`MlflowClient` n'expose que `create_experiment`, `rename_experiment`,
+`set_experiment_tag`, `delete_experiment`/`restore_experiment` — vérifié par
+introspection de la classe). Concrètement : si l'expérience
+`consumption-prediction` de votre déploiement a été créée avant ce correctif,
+**tous les runs qu'elle contient, passés et futurs, resteront non
+proxifiés**, quoi que dise la commande serveur actuelle.
+
+**Diagnostic** :
+
+```python
+import mlflow
+mlflow.set_tracking_uri("http://mlflow:5000")
+exp = mlflow.get_experiment_by_name("consumption-prediction")
+print(exp.artifact_location)
+# "mlflow-artifacts:/<id>"   -> sain, artefacts proxifiés
+# "/mlflow-artifacts/<id>"   -> cassé, chemin brut hérité de l'ancienne config
+```
+
+**Remédiation, sans rien détruire** : la seule option supportée est de
+repartir sur une **nouvelle** expérience. `MLFLOW_EXPERIMENT_NAME` est déjà
+configurable (`config.py`) — en DEV, positionner par exemple
+`MLFLOW_EXPERIMENT_NAME=consumption-prediction-v2` dans `.env`/`.env.local`
+fait repartir sur une expérience saine sans toucher à l'historique de
+l'ancienne (elle reste consultable dans l'UI MLflow, simplement plus
+utilisée pour les nouveaux runs). Le nom par défaut dans le code
+(`consumption-prediction`) n'a **pas** été changé : le faire aurait pu
+casser silencieusement un déploiement dont l'expérience était en réalité
+saine, ce que je ne peux pas vérifier depuis cet environnement.
+
+### Model Registry et MLflow 3 : `LoggedModel`, `artifact_path` vs `name`
+
+Avant ce correctif, `training_service.train_model` faisait :
+
+```python
+mlflow.sklearn.log_model(model, artifact_path="model")
+```
+
+et `model_registry.register_challenger` reconstruisait ensuite l'URI à
+enregistrer à la main : `mlflow.register_model(f"runs:/{run_id}/model", ...)`.
+`artifact_path=` est **déprécié en MLflow 3** ("`artifact_path` is
+deprecated. Please use `name` instead.") au profit d'un nouveau concept, le
+**`LoggedModel`** : `log_model()` ne se contente plus de déposer un fichier
+dans les artefacts du run, il crée une entité de premier niveau (identifiant
+`m-<hash>`) avec son **propre** emplacement de stockage, séparé de celui du
+run. Conséquence directement vérifiée dans cet environnement : après
+`mlflow.sklearn.log_model(model, artifact_path="model")`,
+`MlflowClient().list_artifacts(run_id)` renvoie **`[]`** — le run n'a
+littéralement aucun artefact à son nom, tout est sous le `LoggedModel`. C'est
+très exactement le symptôme rapporté ("`list_artifacts(run_id)` retourne
+`[]`" alors qu'une `ModelVersion` existe) : `mlflow.register_model(f"runs:/{run_id}/model",
+...)` ne trouve rien à cette URI et retombe silencieusement sur le
+`LoggedModel` sous-jacent (log MLflow observé : *"Run with id ... has no
+artifacts at artifact path 'model', registering model based on
+models:/m-... instead"*) — un filet de sécurité qui fonctionne, mais qui
+masque le vrai problème et dépend d'un comportement non garanti.
+
+**Correctif appliqué**, suivant l'API MLflow 3 recommandée :
+
+```python
+model_info = mlflow.sklearn.log_model(model, name="model")
+...
+return model, run.info.run_id, model_info.model_uri
+```
+
+`model_info.model_uri` est l'URI **canonique** renvoyée par `log_model()`
+elle-même (`models:/m-<hash>`, pas `runs:/<run_id>/model`) —
+`training_service.train_model` la renvoie désormais explicitement (nouveau
+3ᵉ élément du tuple retourné), et
+`model_registry.register_challenger(client, model_name, model_uri)` prend
+maintenant cette URI en paramètre au lieu de reconstruire une URI `runs:/`
+qui ne pointait vers rien de concret. C'est la même API pour la référence de
+drift : `mlflow.log_dict(reference_stats, "drift_reference.json")` cible
+bien les artefacts du **run** (pas du `LoggedModel`), donc reste inchangée —
+vérifié qu'elle continue à fonctionner correctement avec `--serve-artifacts`
+(voir tests `test_drift_reference_roundtrip` et
+`test_drift_reference_survives_model_artifact_being_unreachable`).
+
+### Robustesse : champion enregistré mais artefact inaccessible
+
+`registry.load_champion_model` enveloppe désormais
+`mlflow.sklearn.load_model(f"models:/{model_name}@champion")` : toute
+`MlflowException` levée pendant le chargement est reconvertie en
+`registry.ChampionLoadError(model_name, cause)`, une exception métier
+explicite distincte de "pas de champion du tout" (qui reste signalé par
+`get_champion_version(...) is None`, sans exception).
+
+Cette distinction est propagée à travers toute la chaîne :
+
+- **`training/pipeline.run_training_pipeline`** : si le champion existe mais
+  `ChampionLoadError` est levée en tentant de le charger pour comparaison,
+  l'erreur est **loggée** (`event=champion_unavailable`, avec
+  `model_version`/`run_id`, `exc_info` complet — l'erreur MLflow originale
+  n'est jamais masquée) et `champion_unavailable=True` est propagé à
+  `_decide_promotion` (voir règle de promotion ci-dessus) et au
+  `TrainingPipelineResult` retourné (nouveau champ). Le pipeline **ne
+  plante pas** et **ne promeut jamais silencieusement** : la même règle
+  "battre la baseline" que pour un premier champion s'applique, la raison
+  de promotion mentionne explicitement la récupération, et la version
+  promue reçoit un tag `recovered_from_broken_champion=true` — auditable
+  dans MLflow.
+- **`retrain/orchestrator.train_if_needed`** : essaie de charger le champion
+  dès la phase de décision (pas seulement pendant l'entraînement) ; si
+  indisponible, `champion_unavailable` devient une raison de réentraînement
+  à part entière (voir §Réentraînement) — un champion cassé qui bloque déjà
+  le service de prédiction est une raison largement suffisante de
+  déclencher automatiquement un nouvel entraînement au prochain passage du
+  scheduler, sans attendre une dérive ou un volume de données.
+- **`inference/prediction_service.ChampionModelCache`** : laisse
+  `ChampionLoadError` se propager telle quelle (elle n'est pas rattrapée
+  localement) ; `api/controller/prediction.py` la distingue de
+  `NoChampionModelError` dans ses logs et sa métrique
+  (`prediction_errors_total{reason="champion_artifact_unavailable"}` contre
+  `reason="no_champion_model"`), mais retourne le même code `503` dans les
+  deux cas — du point de vue de l'appelant HTTP, "pas de champion" et
+  "champion cassé" sont la même classe de problème : le service ne peut
+  temporairement pas prédire.
 
 ---
 
@@ -450,8 +660,10 @@ existant suffisait.
     "model_version": "3"
   }
   ```
-  `404` si historique insuffisant, `503` si aucun champion disponible,
-  `500` sur toute autre erreur (loggée).
+  `404` si historique insuffisant, `503` si aucun champion disponible **ou**
+  si un champion est enregistré mais son artefact est inaccessible
+  (`ChampionLoadError`, voir §MLflow — Robustesse champion cassé), `500` sur
+  toute autre erreur (loggée).
 
 ---
 
@@ -507,7 +719,7 @@ registre `prometheus_client` par défaut (un seul `/metrics`) :
 | Métrique | Type | Labels | Origine |
 |---|---|---|---|
 | `prediction_requests_total` | Counter | `result` (`success`/`error`) | in-process, à chaque appel `/prediction` |
-| `prediction_errors_total` | Counter | `reason` | in-process |
+| `prediction_errors_total` | Counter | `reason` (`insufficient_history`/`no_champion_model`/`champion_artifact_unavailable`/`unexpected`) | in-process |
 | `prediction_latency_seconds` | Histogram | — | in-process |
 | `ml_last_prediction_timestamp` | Gauge | — | in-process, mis à jour à chaque prédiction réussie |
 | `ml_training_runs_total` | Gauge | — | recalculée depuis MLflow à chaque scrape |
@@ -636,6 +848,25 @@ temporaire via la fixture `mlflow_tracking_uri` de `conftest.py`, ou mocks) :
 | `test_ml_metrics.py` | compteurs in-process, rafraîchissement des gauges depuis MLflow |
 | `test_main.py` (réécrit) | CLI `train`/`train-if-needed`/`serve`, codes de sortie |
 
+**Ajoutés pour le correctif MLflow/artefacts** (mêmes principes
+d'isolation ; le cas "artefact inaccessible" est simulé en supprimant
+réellement le dossier d'artefacts du backend SQLite isolé de test —
+`shutil.rmtree(tmp_path / "artifacts")` — plutôt que par un mock, pour
+tester le vrai comportement de `mlflow.sklearn.load_model` face à un
+stockage manquant) :
+
+| Test | Couvre |
+|---|---|
+| `test_training_service.py::test_train_model_logged_model_is_actually_loadable` | l'URI renvoyée par `train_model` pointe vers un artefact réellement rechargeable (§11.A) |
+| `test_model_registry.py::test_load_champion_model_raises_champion_load_error_when_artifact_is_unreachable` | champion `READY` mais artefact supprimé → `ChampionLoadError`, pas une `MlflowException` brute qui fuit (§11.D) |
+| `test_model_registry.py::test_drift_reference_survives_model_artifact_being_unreachable` | `drift_reference.json` reste récupérable même si le dossier du modèle est perdu — les deux ne partagent pas le même stockage (§10, §11.C) |
+| `test_prediction_service.py::test_champion_model_cache_raises_champion_load_error_when_artifact_unreachable` | le cache d'inférence propage `ChampionLoadError` sans la masquer |
+| `test_training_pipeline.py::test_broken_champion_does_not_block_training_and_is_recovered` | un champion cassé n'empêche pas un nouvel entraînement ; le candidat qui bat la baseline est promu, tag `recovered_from_broken_champion=true` (§8, §16) |
+| `test_training_pipeline.py::test_broken_champion_candidate_still_rejected_if_it_does_not_beat_baseline` | la règle "battre la baseline" reste appliquée même en mode récupération — pas de promotion automatique inconditionnelle |
+| `test_retrain_decision.py::test_champion_unavailable_triggers_retrain` | `champion_unavailable` est une raison de réentraînement à part entière |
+| `test_retrain_orchestrator.py::test_retrains_and_recovers_when_champion_artifact_is_unreachable` | `train_if_needed` bout-en-bout : détecte, réentraîne, promeut un nouveau champion utilisable |
+| `test_api_prediction.py::test_get_prediction_returns_503_when_champion_artifact_is_unreachable` | l'API distingue `ChampionLoadError` de `NoChampionModelError` (logs/métriques) mais retourne `503` dans les deux cas |
+
 **Commandes exactes** :
 
 ```bash
@@ -650,9 +881,21 @@ PYTHONPATH="$PWD/backend/prediction:$PWD/backend" \
 réel) :
 
 ```
-118 passed
-TOTAL coverage: 99.21% (seuil CI : 80%)
+128 passed
+TOTAL coverage: 99.26% (seuil CI : 80%)
 ```
+
+**Vérification supplémentaire, hors suite pytest** : le vrai code du
+service a aussi été exécuté contre un **vrai processus `mlflow server`**
+local (`--serve-artifacts --artifacts-destination ...`, MLflow 3.16.0), avec
+le répertoire d'artefacts rendu inaccessible au client via un mount
+namespace Linux isolé (`unshare --mount` + `tmpfs`) — reproduisant fidèlement
+la séparation de filesystem entre conteneurs Docker sans nécessiter Docker.
+Résultat réel obtenu :
+`mlflow.sklearn.load_model("models:/consumption-predictor@champion")` →
+prédiction correcte ; `GET /api/v1/sites/SITE001/prediction` → `200`, corps
+JSON correct ; `GET /metrics` → `200`, `ml_current_model_info` reflète la
+bonne version. Voir §Troubleshooting pour le mécanisme complet.
 
 ---
 
@@ -685,7 +928,78 @@ curl http://localhost:8003/metrics
 `docker build` n'a **pas** été exécuté dans cet environnement (pas de démon
 Docker disponible dans ce sandbox WSL) — **NON VÉRIFIÉ DANS CET
 ENVIRONNEMENT**, à valider avec la commande ci-dessus. Les imports Python et
-la suite de tests ont en revanche été exécutés et validés (voir §Tests).
+la suite de tests ont en revanche été exécutés et validés (voir §Tests). Le
+comportement HTTP-only (aucun partage de filesystem entre `prediction` et
+`mlflow`) a lui été vérifié réellement, hors Docker, avec le vrai code du
+service — voir §Troubleshooting, "`No such artifact: ''`".
+
+### Healthcheck MLflow et ordre de démarrage
+
+`docker compose run --rm prediction ...` (et `up`) pouvaient démarrer
+`prediction` avant que le serveur MLflow n'ait fini son propre démarrage
+(connexion au backend store Postgres, montage des routes, etc.), produisant
+`Failed to establish a new connection: [Errno 111] Connection refused` sur
+`mlflow:5000` — la requête finissait par aboutir seulement parce que le
+client MLflow retente automatiquement, un comportement qui masque un vrai
+problème d'ordonnancement plutôt que de le résoudre.
+
+Cause : `mlflow` (`docker-compose-data.yaml`) n'avait **aucun healthcheck**,
+et `prediction` (`docker-compose.yaml`) ne déclarait `depends_on` que sur
+`postgres`, jamais sur `mlflow`.
+
+Correctif, purement Docker Compose (pas de script de retry applicatif) :
+
+```yaml
+# docker-compose-data.yaml, service mlflow
+healthcheck:
+  test:
+    [
+      "CMD",
+      "python",
+      "-c",
+      "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)",
+    ]
+  interval: 5s
+  timeout: 5s
+  retries: 20
+  start_period: 15s
+```
+
+```yaml
+# docker-compose.yaml, service prediction
+depends_on:
+  postgres:
+    condition: service_healthy
+  mlflow:
+    condition: service_healthy
+```
+
+Le test du healthcheck utilise `python -c "import urllib.request; ..."`
+plutôt que `curl`/`wget` : l'image officielle `ghcr.io/mlflow/mlflow` ne
+garantit pas la présence de ces outils, alors que Python l'est forcément
+(c'est le runtime du serveur lui-même) — aucune dépendance supplémentaire
+n'est introduite. `mlflow server` expose bien un endpoint `GET /health`
+(vérifié : renvoie `200` dès que le serveur a fini de démarrer, dans
+l'environnement de test local).
+
+`mlflow` n'étant défini que dans `docker-compose-data.yaml`, ce
+`depends_on` ne fonctionne que si `prediction` est démarré avec les deux
+fichiers combinés (`-f docker-compose.yaml -f docker-compose-data.yaml`) —
+c'est déjà l'unique façon dont ce projet est démarré (`docker.ps1` combine
+toujours les deux, comme il le fait déjà pour la dépendance existante
+`prediction → postgres`, définie dans le même fichier séparé). `docker
+compose run` respecte `depends_on`/`condition: service_healthy` exactement
+comme `up`, sauf si `--no-deps` est passé explicitement.
+
+**NON VÉRIFIÉ DANS CET ENVIRONNEMENT** : la syntaxe YAML des deux fichiers a
+été validée (`yaml.safe_load`), et le healthcheck a été confirmé
+fonctionnel en pointant `mlflow server --host ... --port ...` en dehors de
+Docker et en vérifiant `GET /health` en HTTP réel. Le comportement du
+`depends_on`/`healthcheck` **dans un vrai `docker compose up`/`run`** n'a
+pas pu être exécuté (pas de démon Docker ici) — à vérifier avec :
+`docker compose -f docker-compose.yaml -f docker-compose-data.yaml up -d postgres mlflow`
+puis `docker compose ... ps` (colonne `STATUS` doit passer à `healthy`
+avant que `prediction` ne démarre).
 
 ---
 
@@ -761,6 +1075,89 @@ Drift ────────┘
 
 ---
 
+## Troubleshooting
+
+### `mlflow.exceptions.MlflowException: No such artifact: ''`
+
+**Symptôme** : levée en chargeant le champion
+(`mlflow.sklearn.load_model("models:/consumption-predictor@champion")`),
+typiquement observée comme un `503`/`500` sur
+`GET /api/v1/sites/{site_id}/prediction`, ou une erreur interrompant
+`python -m prediction.main train` en tentant de charger le champion
+existant pour comparaison.
+
+**Cause** : l'expérience MLflow dans laquelle vit le run du champion a un
+`artifact_location` en chemin filesystem brut (ex. `/mlflow-artifacts/1`)
+plutôt qu'en schéma proxifié (`mlflow-artifacts:/1`). Le conteneur qui
+essaie de charger le modèle n'a pas ce chemin monté sur son propre
+filesystem (normal : seul le conteneur `mlflow` a accès au volume
+`/mlflow-artifacts`) → le `LocalArtifactRepository` côté client ne trouve
+rien. Voir §MLflow — Architecture des artefacts pour le mécanisme complet.
+
+**Diagnostic** :
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose-data.yaml exec mlflow \
+  python -c "
+import mlflow
+mlflow.set_tracking_uri('http://localhost:5000')
+exp = mlflow.get_experiment_by_name('consumption-prediction')
+print(exp.artifact_location)
+"
+```
+
+- Commence par `mlflow-artifacts:/` → configuration serveur saine, le
+  problème est ailleurs (vérifier que le champion pointe vers un run réel :
+  `client.get_model_version_by_alias('consumption-predictor', 'champion')`,
+  puis `client.list_artifacts(run_id)` / le contenu du `LoggedModel`
+  associé).
+- Commence par `/` (chemin brut) → expérience créée avant le correctif de
+  la commande `mlflow server` (voir `docker-compose-data.yaml` :
+  `--artifacts-destination` + `--serve-artifacts`, jamais
+  `--default-artifact-root <chemin brut>`). **Remédiation** : définir
+  `MLFLOW_EXPERIMENT_NAME=consumption-prediction-v2` (ou un autre nom neuf)
+  dans `.env`/`.env.local`, puis relancer `python -m prediction.main train`
+  — une expérience saine est créée automatiquement, l'ancienne reste
+  intacte et consultable dans l'UI MLflow.
+
+Dans l'intervalle (champion existant mais cassé, avant remédiation), le
+service ne reste pas bloqué indéfiniment : `python -m prediction.main train`
+et `train-if-needed` détectent l'échec de chargement
+(`registry.ChampionLoadError`), le journalisent
+(`event=champion_unavailable`) et promeuvent un nouveau champion dès qu'un
+candidat bat la baseline, taggé `recovered_from_broken_champion=true` —
+voir §MLflow — Robustesse champion cassé.
+
+### `Failed to establish a new connection: [Errno 111] Connection refused` (`mlflow:5000`)
+
+**Symptôme** : au démarrage de `prediction` (via `docker compose run` ou
+`up`), quelques tentatives échouent avant que le training/l'API ne
+fonctionne normalement.
+
+**Cause** : `mlflow` prend le temps de démarrer réellement (connexion à son
+backend store Postgres, initialisation du serveur ASGI) ; sans
+`depends_on: condition: service_healthy`, Compose démarre `prediction` dès
+que `postgres` est prêt, sans attendre `mlflow`. Voir §Docker — Healthcheck
+MLflow et ordre de démarrage pour le correctif appliqué
+(`healthcheck` sur `mlflow` + `depends_on: mlflow: condition: service_healthy`
+sur `prediction`).
+
+**Vérification** :
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose-data.yaml ps mlflow
+# STATUS doit afficher "healthy", pas juste "Up"
+docker compose -f docker-compose.yaml -f docker-compose-data.yaml logs mlflow | tail -50
+```
+
+Si le problème persiste après le correctif : vérifier que l'image
+`mlflow` a bien été reconstruite (`docker compose ... build mlflow`) après
+la mise à jour de `docker-compose-data.yaml`, et que le `start_period`
+(15 s) est suffisant sur la machine cible (l'augmenter si le serveur met
+plus longtemps à répondre à `/health` au premier démarrage).
+
+---
+
 ## Limitations
 
 - **Volume/qualité des données** : ce travail a été développé et testé avec
@@ -798,10 +1195,34 @@ Drift ────────┘
   n'a pas pu être installée ni vérifiée sur un serveur réel dans cet
   environnement — seule la partie applicative (les sous-commandes CLI) a
   été testée.
-- **Docker build** : non exécuté dans cet environnement (pas de démon Docker
-  disponible) — voir §Docker pour la commande de vérification.
-- **Cycle MLflow bout-en-bout contre un vrai serveur MLflow/PostgreSQL de
-  production** : non vérifié ici (uniquement testé contre un backend SQLite
-  local isolé, par construction, pour ne jamais dépendre d'une
-  infrastructure réelle dans les tests unitaires) — voir §Tests pour la
-  commande à rejouer contre l'environnement réel une fois déployé.
+- **Docker build / `docker compose up` réel** : non exécuté dans cet
+  environnement (pas de démon Docker disponible dans ce sandbox WSL) — le
+  `depends_on`/`healthcheck` de §Docker n'a donc pas pu être observé dans un
+  vrai `docker compose up`, seulement validé syntaxiquement (YAML) et par le
+  raisonnement (le même pattern `depends_on` cross-fichier est déjà utilisé
+  avec succès par `prediction → postgres`).
+- **Le mécanisme HTTP-only des artefacts, lui, a été vérifié réellement**
+  hors Docker : un vrai `mlflow server --serve-artifacts --artifacts-destination ...`
+  a été lancé en local, le vrai code de `backend/prediction`
+  (`training_service.train_model`, `model_registry.register_challenger` /
+  `promote_to_champion` / `load_champion_model`, `PredictionService`,
+  l'API FastAPI complète via `TestClient`) a tourné contre ce serveur, et le
+  chargement du champion + `GET /api/v1/sites/{id}/prediction` +
+  `GET /metrics` ont été exécutés depuis un processus dont le répertoire
+  d'artefacts était rendu vide via un mount namespace Linux dédié (`unshare
+  --mount` + `tmpfs`) — une simulation fidèle de "un conteneur sans accès
+  au volume `/mlflow-artifacts` d'un autre conteneur", sans avoir besoin de
+  Docker lui-même pour le démontrer. Cela reste néanmoins une simulation :
+  le comportement réseau réel entre conteneurs Docker sur
+  `enervision_network` n'a pas été observé.
+- **Postgres réel** : `ener.prediction`/`ener.measurement` n'ont pas été
+  testés contre une vraie instance PostgreSQL dans cet environnement — les
+  tests utilisent des mocks/fixtures pour `prediction_repository.py` (voir
+  §Tests). La requête SQL de jointure (§Réentraînement — Performance réelle)
+  n'a donc pas été exécutée contre un vrai moteur SQL.
+- **Expériences MLflow pré-existantes** : si l'expérience
+  `consumption-prediction` de votre déploiement réel a été créée avant ce
+  correctif, elle reste **définitivement** non proxifiée (voir §MLflow —
+  Architecture des artefacts) ; je n'ai pas accès à votre backend store
+  MLflow réel pour vérifier son état actuel — utilisez la commande de
+  diagnostic donnée en §Troubleshooting.
