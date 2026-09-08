@@ -17,6 +17,16 @@ DRIFT_REFERENCE_ARTIFACT_PATH = "drift_reference.json"
 TRAINING_CUTOFF_PARAM = "dataset_max_date"
 
 
+class ChampionLoadError(Exception):
+    def __init__(self, model_name: str, cause: Exception):
+        self.model_name = model_name
+        self.cause = cause
+        super().__init__(
+            f"Le modèle champion '{model_name}' (alias '{CHAMPION_ALIAS}') est enregistré "
+            f"mais son artefact est inaccessible : {cause}"
+        )
+
+
 def get_model_version_by_alias(
     client: MlflowClient, model_name: str, alias: str
 ) -> ModelVersion | None:
@@ -31,11 +41,14 @@ def get_champion_version(client: MlflowClient, model_name: str) -> ModelVersion 
 
 
 def load_champion_model(model_name: str):
-    return mlflow.sklearn.load_model(f"models:/{model_name}@{CHAMPION_ALIAS}")
+    try:
+        return mlflow.sklearn.load_model(f"models:/{model_name}@{CHAMPION_ALIAS}")
+    except MlflowException as error:
+        raise ChampionLoadError(model_name, error) from error
 
 
-def register_challenger(client: MlflowClient, model_name: str, run_id: str) -> ModelVersion:
-    model_version = mlflow.register_model(f"runs:/{run_id}/model", model_name)
+def register_challenger(client: MlflowClient, model_name: str, model_uri: str) -> ModelVersion:
+    model_version = mlflow.register_model(model_uri, model_name)
     client.set_registered_model_alias(model_name, CHALLENGER_ALIAS, model_version.version)
     client.set_model_version_tag(model_name, model_version.version, "candidate", "true")
     return client.get_model_version(model_name, model_version.version)

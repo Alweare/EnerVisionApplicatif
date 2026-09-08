@@ -24,9 +24,9 @@ def train_model(X_train, y_train, dvc_hash: str | None = None):
         mlflow.log_param("n_train_rows", len(X_train))
         if dvc_hash:
             mlflow.log_param("dvc_hash", dvc_hash)
-        mlflow.sklearn.log_model(model, artifact_path="model")
+        model_info = mlflow.sklearn.log_model(model, name="model")
 
-        return model, run.info.run_id
+        return model, run.info.run_id, model_info.model_uri
 
 
 def evaluate_model(model, X_test, y_test, run_id):

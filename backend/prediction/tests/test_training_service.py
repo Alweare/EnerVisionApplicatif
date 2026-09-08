@@ -51,7 +51,7 @@ def test_train_model_returns_model_and_run_id(
 ):
     X_train, _, y_train, _ = clean_dataset
 
-    model, run_id = train_model(
+    model, run_id, model_uri = train_model(
         X_train,
         y_train,
     )
@@ -62,6 +62,30 @@ def test_train_model_returns_model_and_run_id(
     assert isinstance(run_id, str)
     assert len(run_id) > 0
 
+    assert model_uri is not None
+    assert isinstance(model_uri, str)
+    assert model_uri.startswith("models:/")
+
+
+def test_train_model_logged_model_is_actually_loadable(
+    mlflow_tracking_uri,
+    clean_dataset,
+):
+    """
+    Critère d'acceptation : l'URI renvoyée par `train_model` doit pointer vers
+    un artefact réellement récupérable, pas seulement vers un identifiant.
+    """
+    X_train, _, y_train, _ = clean_dataset
+
+    model, _, model_uri = train_model(
+        X_train,
+        y_train,
+    )
+
+    reloaded = mlflow.sklearn.load_model(model_uri)
+
+    assert reloaded.coef_ == pytest.approx(model.coef_)
+
 
 def test_training_logs_expected_parameters(
     mlflow_tracking_uri,
@@ -69,7 +93,7 @@ def test_training_logs_expected_parameters(
 ):
     X_train, _, y_train, _ = clean_dataset
 
-    _, run_id = train_model(
+    _, run_id, _ = train_model(
         X_train,
         y_train,
         dvc_hash="abc123",
@@ -88,7 +112,7 @@ def test_evaluate_model_logs_mae_in_same_run(
 ):
     X_train, X_test, y_train, y_test = clean_dataset
 
-    model, run_id = train_model(
+    model, run_id, _ = train_model(
         X_train,
         y_train,
     )
@@ -121,7 +145,7 @@ def test_noisy_data_produces_higher_mae(
     """
     X_train, X_test, y_train, y_test_clean = clean_dataset
 
-    clean_model, clean_run_id = train_model(
+    clean_model, clean_run_id, _ = train_model(
         X_train,
         y_train,
     )
@@ -139,7 +163,7 @@ def test_noisy_data_produces_higher_mae(
         30,
     ])
 
-    noisy_model, noisy_run_id = train_model(
+    noisy_model, noisy_run_id, _ = train_model(
         X_train,
         y_train,
     )
@@ -165,12 +189,12 @@ def test_two_training_calls_create_different_runs(
     """
     X_train, _, y_train, _ = clean_dataset
 
-    _, first_run_id = train_model(
+    _, first_run_id, _ = train_model(
         X_train,
         y_train,
     )
 
-    _, second_run_id = train_model(
+    _, second_run_id, _ = train_model(
         X_train,
         y_train,
     )
@@ -194,7 +218,7 @@ def test_evaluation_does_not_create_another_run(
         "consumption-prediction"
     )
 
-    model, run_id = train_model(
+    model, run_id, _ = train_model(
         X_train,
         y_train,
     )

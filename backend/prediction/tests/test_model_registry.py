@@ -1,3 +1,5 @@
+import shutil
+
 import mlflow
 import numpy as np
 import pytest
@@ -14,8 +16,8 @@ def _log_model_run(X, y) -> str:
     with mlflow.start_run() as run:
         model = LinearRegression()
         model.fit(X, y)
-        mlflow.sklearn.log_model(model, artifact_path="model")
-        return run.info.run_id
+        model_info = mlflow.sklearn.log_model(model, name="model")
+        return model_info.model_uri
 
 
 @pytest.fixture
@@ -32,9 +34,9 @@ def test_get_champion_version_returns_none_when_no_champion(mlflow_tracking_uri)
 
 def test_register_challenger_sets_alias_and_candidate_tag(mlflow_tracking_uri, X_y):
     client = MlflowClient()
-    run_id = _log_model_run(*X_y)
+    model_uri = _log_model_run(*X_y)
 
-    version = registry.register_challenger(client, MODEL_NAME, run_id)
+    version = registry.register_challenger(client, MODEL_NAME, model_uri)
 
     challenger = registry.get_model_version_by_alias(client, MODEL_NAME, CHALLENGER_ALIAS)
     assert challenger.version == version.version
@@ -43,8 +45,8 @@ def test_register_challenger_sets_alias_and_candidate_tag(mlflow_tracking_uri, X
 
 def test_promote_to_champion_sets_alias_and_tags(mlflow_tracking_uri, X_y):
     client = MlflowClient()
-    run_id = _log_model_run(*X_y)
-    version = registry.register_challenger(client, MODEL_NAME, run_id)
+    model_uri = _log_model_run(*X_y)
+    version = registry.register_challenger(client, MODEL_NAME, model_uri)
 
     registry.promote_to_champion(client, MODEL_NAME, version.version, reason="beats baseline and champion")
 
@@ -57,8 +59,8 @@ def test_promote_to_champion_sets_alias_and_tags(mlflow_tracking_uri, X_y):
 
 def test_promote_to_champion_clears_challenger_alias(mlflow_tracking_uri, X_y):
     client = MlflowClient()
-    run_id = _log_model_run(*X_y)
-    version = registry.register_challenger(client, MODEL_NAME, run_id)
+    model_uri = _log_model_run(*X_y)
+    version = registry.register_challenger(client, MODEL_NAME, model_uri)
 
     registry.promote_to_champion(client, MODEL_NAME, version.version, reason="ok")
 
@@ -67,8 +69,8 @@ def test_promote_to_champion_clears_challenger_alias(mlflow_tracking_uri, X_y):
 
 def test_reject_challenger_does_not_delete_model_version(mlflow_tracking_uri, X_y):
     client = MlflowClient()
-    run_id = _log_model_run(*X_y)
-    version = registry.register_challenger(client, MODEL_NAME, run_id)
+    model_uri = _log_model_run(*X_y)
+    version = registry.register_challenger(client, MODEL_NAME, model_uri)
 
     registry.reject_challenger(client, MODEL_NAME, version.version, reason="worse than baseline")
 
@@ -80,8 +82,8 @@ def test_reject_challenger_does_not_delete_model_version(mlflow_tracking_uri, X_
 
 def test_load_champion_model_returns_usable_model(mlflow_tracking_uri, X_y):
     client = MlflowClient()
-    run_id = _log_model_run(*X_y)
-    version = registry.register_challenger(client, MODEL_NAME, run_id)
+    model_uri = _log_model_run(*X_y)
+    version = registry.register_challenger(client, MODEL_NAME, model_uri)
     registry.promote_to_champion(client, MODEL_NAME, version.version, reason="first champion")
 
     model = registry.load_champion_model(MODEL_NAME)
@@ -90,15 +92,31 @@ def test_load_champion_model_returns_usable_model(mlflow_tracking_uri, X_y):
     assert prediction[0] == pytest.approx(12.0, abs=1e-6)
 
 
+def test_load_champion_model_raises_champion_load_error_when_artifact_is_unreachable(
+    mlflow_tracking_uri, X_y, tmp_path
+):
+    client = MlflowClient()
+    model_uri = _log_model_run(*X_y)
+    version = registry.register_challenger(client, MODEL_NAME, model_uri)
+    registry.promote_to_champion(client, MODEL_NAME, version.version, reason="first champion")
+
+    shutil.rmtree(tmp_path / "artifacts", ignore_errors=True)
+
+    with pytest.raises(registry.ChampionLoadError) as exc_info:
+        registry.load_champion_model(MODEL_NAME)
+
+    assert exc_info.value.model_name == MODEL_NAME
+
+
 def test_history_is_preserved_across_promotions(mlflow_tracking_uri, X_y):
     client = MlflowClient()
 
-    first_run = _log_model_run(*X_y)
-    first_version = registry.register_challenger(client, MODEL_NAME, first_run)
+    first_model_uri = _log_model_run(*X_y)
+    first_version = registry.register_challenger(client, MODEL_NAME, first_model_uri)
     registry.promote_to_champion(client, MODEL_NAME, first_version.version, reason="first champion")
 
-    second_run = _log_model_run(*X_y)
-    second_version = registry.register_challenger(client, MODEL_NAME, second_run)
+    second_model_uri = _log_model_run(*X_y)
+    second_version = registry.register_challenger(client, MODEL_NAME, second_model_uri)
     registry.promote_to_champion(client, MODEL_NAME, second_version.version, reason="better challenger")
 
     champion = registry.get_champion_version(client, MODEL_NAME)
@@ -116,11 +134,31 @@ def test_drift_reference_roundtrip(mlflow_tracking_uri, X_y):
     with mlflow.start_run() as run:
         model = LinearRegression()
         model.fit(*X_y)
-        mlflow.sklearn.log_model(model, artifact_path="model")
+        model_info = mlflow.sklearn.log_model(model, name="model")
         registry.save_drift_reference(reference)
-        run_id = run.info.run_id
+        model_uri = model_info.model_uri
 
-    version = registry.register_challenger(client, MODEL_NAME, run_id)
+    version = registry.register_challenger(client, MODEL_NAME, model_uri)
+
+    loaded = registry.load_drift_reference(client, version)
+    assert loaded == reference
+
+
+def test_drift_reference_survives_model_artifact_being_unreachable(mlflow_tracking_uri, X_y, tmp_path):
+    client = MlflowClient()
+    reference = {"n_bins": 10, "features": {"lag_1h": {"bin_edges": [1, 2], "reference_proportions": [1.0]}}}
+
+    with mlflow.start_run() as run:
+        model = LinearRegression()
+        model.fit(*X_y)
+        model_info = mlflow.sklearn.log_model(model, name="model")
+        registry.save_drift_reference(reference)
+        model_uri = model_info.model_uri
+
+    version = registry.register_challenger(client, MODEL_NAME, model_uri)
+
+    models_dir = tmp_path / "artifacts" / "models"
+    shutil.rmtree(models_dir, ignore_errors=True)
 
     loaded = registry.load_drift_reference(client, version)
     assert loaded == reference
@@ -128,8 +166,8 @@ def test_drift_reference_roundtrip(mlflow_tracking_uri, X_y):
 
 def test_load_drift_reference_returns_none_when_missing(mlflow_tracking_uri, X_y):
     client = MlflowClient()
-    run_id = _log_model_run(*X_y)
-    version = registry.register_challenger(client, MODEL_NAME, run_id)
+    model_uri = _log_model_run(*X_y)
+    version = registry.register_challenger(client, MODEL_NAME, model_uri)
 
     assert registry.load_drift_reference(client, version) is None
 
@@ -163,8 +201,8 @@ def test_count_runs_with_tag(mlflow_tracking_uri):
 
 def test_count_versions_with_tag(mlflow_tracking_uri, X_y):
     client = MlflowClient()
-    run_id = _log_model_run(*X_y)
-    version = registry.register_challenger(client, MODEL_NAME, run_id)
+    model_uri = _log_model_run(*X_y)
+    version = registry.register_challenger(client, MODEL_NAME, model_uri)
     registry.reject_challenger(client, MODEL_NAME, version.version, reason="worse than baseline")
 
     assert registry.count_versions_with_tag(client, MODEL_NAME, "rejected", "true") == 1
