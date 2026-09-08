@@ -22,7 +22,6 @@ FIELDS_TO_FILL = [
 DEFAULT_FORWARD_FILL_DEPTH = 3
 
 BLOB_PREFIX = "measures/"
-# Les alertes ne sont pas rangées par date : le worker écrit à plat.
 ALERT_PREFIX = "alert/"
 DEFAULT_LOOKBACK_MINUTES = 24 * 60
 
@@ -71,13 +70,15 @@ class ETLService:
 
     # --- Extraction -------------------------------------------------------
 
-    def _day_prefixes(self, cutoff: datetime, now: datetime) -> list[str]:
+    def _day_prefixes(
+        self, cutoff: datetime, now: datetime, root: str = BLOB_PREFIX
+    ) -> list[str]:
         """Préfixes des jours couverts par la fenêtre. Un seul en général,
         deux quand la fenêtre enjambe minuit."""
         prefixes = []
         day = cutoff.date()
         while day <= now.date():
-            prefixes.append(f"{BLOB_PREFIX}{day:%Y/%m/%d}/")
+            prefixes.append(f"{root}{day:%Y/%m/%d}/")
             day += timedelta(days=1)
         return prefixes
 
@@ -253,16 +254,17 @@ class ETLService:
     # --- Orchestration ----------------------------------------------------
     #récupère les fichiers récents triés chronologiquement
     # --- Alertes ----------------------------------------------------------
-    # Listage à plat : contrairement aux mesures, les blobs d'alertes ne sont
-    # pas rangés par jour.
+ 
     def list_recent_alert_blobs(self, lookback_minutes: int = None) -> list[str]:
 
         minutes = self.lookback_minutes if lookback_minutes is None else lookback_minutes
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(minutes=minutes)
 
         recent = [
             blob
-            for blob in self.container_client.list_blobs(name_starts_with=ALERT_PREFIX)
+            for prefix in self._day_prefixes(cutoff, now, ALERT_PREFIX)
+            for blob in self.container_client.list_blobs(name_starts_with=prefix)
             if not blob.name.endswith("/") and blob.last_modified >= cutoff
         ]
         recent.sort(key=lambda blob: blob.last_modified)

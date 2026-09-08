@@ -142,3 +142,17 @@ async def test_archive_raw_never_writes_flat_under_the_prefix(mock_blob):
     blob_name = await blob_storage.archive_raw('{"site_id": "SITE001"}')
 
     assert blob_name.count("/") == 4  # measures/AAAA/MM/JJ/<uuid>.json
+
+async def test_archive_alerts_raw_puts_the_date_in_the_blob_path(mock_blob):
+    today = datetime.now(timezone.utc).strftime("%Y/%m/%d")
+
+    blob_name = await blob_storage.archive_alerts_raw('[{"alert_id": "ALR-1"}]')
+
+    assert blob_name.startswith(f"alert/{today}/")
+    assert blob_name.endswith(".json")
+
+async def test_archive_alerts_raw_never_writes_flat_under_the_prefix(mock_blob):
+    # Même raison que pour les mesures : l'ETL ne liste que les jours utiles.
+    blob_name = await blob_storage.archive_alerts_raw('[{"alert_id": "ALR-1"}]')
+
+    assert blob_name.count("/") == 4  # alert/AAAA/MM/JJ/<uuid>.json

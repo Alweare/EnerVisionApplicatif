@@ -640,17 +640,26 @@ def test_run_alerts_does_nothing_when_every_blob_is_tracked():
 def test_list_recent_alert_blobs_ignores_blobs_outside_the_window(monkeypatch):
     monkeypatch.setenv("AZURE_STORAGE_CONTAINER_NAME", "raw")
     service = ETLService.__new__(ETLService)
-    service.lookback_minutes = 24 * 60
+
+    service.lookback_minutes = 10
     now = datetime.now(timezone.utc)
+    day = f"{now:%Y/%m/%d}"
     container_client = Mock()
     container_client.list_blobs.return_value = [
-        SimpleNamespace(name="alert/vieux.json", last_modified=now - timedelta(days=3)),
-        SimpleNamespace(name="alert/recent.json", last_modified=now - timedelta(minutes=5)),
+        SimpleNamespace(
+            name=f"alert/{day}/vieux.json", last_modified=now - timedelta(days=3)
+        ),
+        SimpleNamespace(
+            name=f"alert/{day}/recent.json", last_modified=now - timedelta(minutes=5)
+        ),
     ]
     service.container_client = container_client
 
-    assert service.list_recent_alert_blobs() == ["alert/recent.json"]
-    container_client.list_blobs.assert_called_once_with(name_starts_with="alert/")
+    assert service.list_recent_alert_blobs() == [f"alert/{day}/recent.json"]
+    # Comme les mesures : seuls les jours de la fenêtre sont listés.
+    container_client.list_blobs.assert_called_once_with(
+        name_starts_with=f"alert/{day}/"
+    )
 
 
 def test_download_alerts_accepts_a_list_or_a_single_object(monkeypatch):

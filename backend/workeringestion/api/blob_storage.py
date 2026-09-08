@@ -19,8 +19,6 @@ AZURE_STORAGE_ACCOUNT = os.environ.get("AZURE_STORAGE_ACCOUNT")
 AZURE_STORAGE_CONTAINER_NAME = os.environ.get("AZURE_STORAGE_CONTAINER_NAME", "raw")
 AZURE_SAS_INGESTION = os.environ.get("AZURE_SAS_INGESTION")
 
-# SAS scopé au conteneur (sr=c) : ContainerClient direct, pas de
-# BlobServiceClient au niveau compte.
 _container_client = ContainerClient.from_container_url(
     f"https://{AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/"
     f"{AZURE_STORAGE_CONTAINER_NAME}?{AZURE_SAS_INGESTION}"
@@ -29,10 +27,6 @@ _container_client = ContainerClient.from_container_url(
 MEASURES_PREFIX = "measures/"
 ALERT_PATH = "alert/"
 
-
-# Les erreurs sont journalisées ici puis relancées : les avaler ferait loguer
-# « Lecture archivée » au poller pour une donnée jamais écrite. L'appelant
-# intercepte déjà et poursuit le cycle.
 async def _upload(blob_name: str, raw_json: str) -> str:
     try:
         await _container_client.upload_blob(name=blob_name, data=raw_json, overwrite=False)
@@ -66,12 +60,14 @@ async def _upload(blob_name: str, raw_json: str) -> str:
     return blob_name
 
 
-# Découpage par date : l'ETL ne liste que les jours de sa fenêtre, au lieu de
-# parcourir tout le conteneur à chaque cycle.
+
+def _day() -> str:
+    return datetime.now(timezone.utc).strftime("%Y/%m/%d")
+
+
 async def archive_raw(raw_json: str) -> str:
-    day = datetime.now(timezone.utc).strftime("%Y/%m/%d")
-    return await _upload(f"{MEASURES_PREFIX}{day}/{uuid.uuid4()}.json", raw_json)
+    return await _upload(f"{MEASURES_PREFIX}{_day()}/{uuid.uuid4()}.json", raw_json)
 
 
 async def archive_alerts_raw(raw_json: str) -> str:
-    return await _upload(f"{ALERT_PATH}{uuid.uuid4()}.json", raw_json)
+    return await _upload(f"{ALERT_PATH}{_day()}/{uuid.uuid4()}.json", raw_json)
