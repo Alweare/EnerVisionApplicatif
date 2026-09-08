@@ -31,3 +31,17 @@ class MeasurementRead(BaseModel):
     null_reason: list[str] | None
     data_quality: str = Field(examples=["good"])
     created_at: datetime | None
+
+class AlertRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    alert_id: str = Field(examples=["ALR-SITE002-1718458320"])
+    site_id: str = Field(examples=["SITE002"])
+    severity: str | None = Field(default=None, examples=["critical"])
+    type: str | None = Field(default=None, examples=["spike"])
+    message: str | None = Field(
+        default=None, examples=["Pic de consommation détecté sur Usine Lyon Vénissieux"]
+    )
+    value: float | None = Field(default=None, examples=[812.5])
+    threshold: float | None = Field(default=None, examples=[720.0])
+    created_at: datetime
