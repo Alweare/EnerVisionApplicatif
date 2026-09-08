@@ -388,6 +388,19 @@ jobs:
       packages: read
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # deploy.sh vit à la fois dans le repo (versionné) et sur le serveur
+      # (/opt/enervisionG3/deploy.sh, exécuté directement) : sans cette
+      # synchronisation, un changement de deploy.sh mergé sur main/develop
+      # ne prend jamais effet tant que quelqu'un ne le copie pas à la main.
+      - name: Sync deploy.sh vers le serveur
+        run: |
+          set -euo pipefail
+          cp deploy.sh /opt/enervisionG3/deploy.sh
+          chmod +x /opt/enervisionG3/deploy.sh
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
