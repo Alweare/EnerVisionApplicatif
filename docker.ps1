@@ -50,7 +50,10 @@ else {
         exit 1
     }
 
-    $ComposeArgs = @()
+    $ComposeArgs = @(
+        "-f", "docker-compose.yaml",
+        "-f", "docker-compose-data.yaml"
+    )
 }
 
 & docker compose @ComposeArgs @Rest

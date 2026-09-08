@@ -50,12 +50,20 @@ docker rm -f "$SERVICE" 2>/dev/null || true
 
 log "Démarrage du nouveau conteneur..."
 
+# core expose son port sur l'hôte : ciblé directement par le job DAST (curl
+# + scan ZAP) sans passer par Traefik.
+PORT_ARGS=()
+if [[ "$SERVICE" == "core" ]]; then
+    PORT_ARGS=(-p 8000:8000)
+fi
+
 docker run -d \
     --name "$SERVICE" \
     --restart unless-stopped \
     --network g3_default \
     --env-file /opt/enervisionG3/.env \
     -v /opt/enervisionG3/secrets:/run/secrets:ro \
+    "${PORT_ARGS[@]}" \
     "$IMAGE"
 
 sleep 3
