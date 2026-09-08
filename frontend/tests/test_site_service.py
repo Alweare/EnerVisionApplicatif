@@ -5,7 +5,7 @@ import requests
 
 from services.site_service import get_site, get_sites
 
-BACKEND_URL = "http://backend:8000"
+CORE_URL = "http://core:8000"
 
 
 def _mock_response(json_data=None, *, ok=True):
@@ -27,7 +27,7 @@ def test_get_sites_calls_expected_url_and_returns_json(mock_get):
 
     result = get_sites()
 
-    mock_get.assert_called_once_with(f"{BACKEND_URL}/api/v1/backend/sites", timeout=10)
+    mock_get.assert_called_once_with(f"{CORE_URL}/api/v1/backend/sites", timeout=10)
     assert result == payload
 
 
@@ -49,7 +49,7 @@ def test_get_site_calls_expected_url_and_returns_json(mock_get):
     result = get_site("SITE001")
 
     mock_get.assert_called_once_with(
-        f"{BACKEND_URL}/api/v1/backend/sites/SITE001", timeout=10
+        f"{CORE_URL}/api/v1/backend/sites/SITE001", timeout=10
     )
     assert result == payload
 
