@@ -36,8 +36,21 @@ def test_get_my_sites_calls_me_sites_endpoint(mock_get):
 
     result = get_my_sites()
 
-    mock_get.assert_called_once_with("/api/v1/me/sites", timeout=10)
+    mock_get.assert_called_once_with(
+        "/api/v1/me/sites", params={"active_only": "true"}, timeout=10
+    )
     assert result == payload
+
+
+@patch("services.site_service.get")
+def test_get_my_sites_forwards_active_only_false(mock_get):
+    mock_get.return_value = []
+
+    get_my_sites(active_only=False)
+
+    mock_get.assert_called_once_with(
+        "/api/v1/me/sites", params={"active_only": "false"}, timeout=10
+    )
 
 
 # --- get_site -----------------------------------------------------------

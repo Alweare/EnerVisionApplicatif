@@ -15,6 +15,12 @@ class SiteRead(BaseModel):
     status: str | None = Field(default=None, examples=["active"])
 
 
+class SiteWithCurrentRead(SiteRead):
+    """`SiteRead` enrichi de la dernière mesure connue du site."""
+    current_consumption_kw: float | None = Field(default=None, examples=[104.47])
+    data_quality: str | None = Field(default=None, examples=["good"])
+
+
 class MeasurementRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

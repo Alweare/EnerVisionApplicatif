@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from core.api.schemas import SiteRead
+from core.api.schemas import SiteWithCurrentRead
 from core.api.service.site_service import SiteService
 from core.security import AuthenticatedUser, get_current_user
 from shared.database import get_db
@@ -21,5 +21,5 @@ def list_sites(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[AuthenticatedUser, Depends(get_current_user)],
     active_only: bool = True,
-) -> list[SiteRead]:
+) -> list[SiteWithCurrentRead]:
     return SiteService(db).list_sites_for_user(UUID(user.sub), active_only)

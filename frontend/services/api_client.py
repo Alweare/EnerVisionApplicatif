@@ -11,13 +11,15 @@ CORE_URL = os.environ.get("CORE_URL")
 class BackendUnavailableError(Exception):
     """Le backend core est injoignable ou a répondu par une erreur inattendue."""
 
-def get(path: str, timeout: float = 5.0) -> dict:
+def get(path: str, params: dict | None = None, timeout: float = 5.0) -> dict:
     """Appelle GET {CORE_URL}{path} avec le token de l'utilisateur connecté."""
     token = get_access_token()
     headers = {"Authorization": f"Bearer {token}"} if token else {}
 
     try:
-        response = requests.get(f"{CORE_URL}{path}", headers=headers, timeout=timeout)
+        response = requests.get(
+            f"{CORE_URL}{path}", params=params, headers=headers, timeout=timeout
+        )
     except requests.RequestException as error:
         raise BackendUnavailableError("Le service backend est indisponible.") from error
 

@@ -17,7 +17,7 @@ def test_get_attaches_bearer_token_and_returns_json(monkeypatch):
     monkeypatch.setattr(api_client, "get_access_token", lambda: "tok-123")
     captured = {}
 
-    def fake_get(url, headers=None, timeout=None):
+    def fake_get(url, params=None, headers=None, timeout=None):
         captured["url"] = url
         captured["headers"] = headers
         return _response(200, {"ok": True})
@@ -35,7 +35,7 @@ def test_get_without_token_sends_no_authorization_header(monkeypatch):
     monkeypatch.setattr(api_client, "get_access_token", lambda: None)
     captured = {}
 
-    def fake_get(url, headers=None, timeout=None):
+    def fake_get(url, params=None, headers=None, timeout=None):
         captured["headers"] = headers
         return _response(200, {})
 
