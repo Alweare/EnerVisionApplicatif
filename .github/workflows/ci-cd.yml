@@ -129,7 +129,26 @@ jobs:
         with:
           fetch-depth: 0
 
+      # actions/setup-python avec cache: pip exige de trouver au moins un
+      # requirements*.txt : plante avant même d'atteindre la vérification
+      # plus bas pour les services sans code Python (ex. backend/authentication,
+      # un simple wrapper Docker autour de l'image Keycloak).
+      - name: Check for Python files
+        id: check
+        env:
+          SERVICE_DIR: ${{ matrix.service.dir }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$(find "$SERVICE_DIR" -name '*.py' -print -quit)" ]; then
+            echo "::notice::Aucun fichier Python dans $SERVICE_DIR (ex. image Keycloak) — tests ignorés."
+            echo "has_python=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_python=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Python
+        if: steps.check.outputs.has_python == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -137,6 +156,7 @@ jobs:
           cache-dependency-path: ${{ matrix.service.dir }}/requirements*.txt
 
       - name: Install dependencies
+        if: steps.check.outputs.has_python == 'true'
         working-directory: ${{ matrix.service.dir }}
         run: |
           set -euo pipefail
@@ -154,16 +174,12 @@ jobs:
           pip install pytest pytest-cov
 
       - name: Run tests for impacted service
+        if: steps.check.outputs.has_python == 'true'
         env:
           SERVICE_DIR: ${{ matrix.service.dir }}
           SERVICE_ROOT: ${{ matrix.service.root }}
         run: |
           set -euo pipefail
-
-          if [ -z "$(find "$SERVICE_DIR" -name '*.py' -print -quit)" ]; then
-            echo "::notice::Aucun fichier Python dans $SERVICE_DIR (ex. image Keycloak) — tests ignorés."
-            exit 0
-          fi
 
           TEST_DIR="$SERVICE_DIR/tests"
 
