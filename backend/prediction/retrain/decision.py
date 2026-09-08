@@ -26,11 +26,15 @@ def should_retrain(
     n_new_rows: int,
     min_new_rows: int,
     real_performance: RealPerformance | None = None,
+    champion_unavailable: bool = False,
 ) -> RetrainDecision:
     reasons: list[str] = []
 
     if not has_champion:
         reasons.append("no_existing_champion")
+
+    if champion_unavailable:
+        reasons.append("champion_unavailable")
 
     if drift_result is not None and drift_result.drift_detected:
         reasons.append("data_drift_detected")

@@ -7,6 +7,7 @@ from prediction.api.schemas import PredictionResponse
 from prediction.inference.feature_builder import InsufficientHistoryError
 from prediction.inference.prediction_service import NoChampionModelError, PredictionService
 from prediction.observability.ml_metrics import observe_prediction_error, observe_prediction_success
+from prediction.registry.model_registry import ChampionLoadError
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ def get_prediction_service() -> PredictionService:
     summary="Prédit la consommation à T+1h pour un site",
     responses={
         404: {"description": "Historique insuffisant pour ce site"},
-        503: {"description": "Aucun modèle champion disponible"},
+        503: {"description": "Aucun modèle champion disponible ou champion inaccessible"},
     },
 )
 def get_site_prediction(
@@ -43,6 +44,17 @@ def get_site_prediction(
     except NoChampionModelError as error:
         observe_prediction_error("no_champion_model", time.perf_counter() - started_at)
         raise HTTPException(status_code=503, detail="Aucun modèle champion disponible") from error
+    except ChampionLoadError as error:
+        observe_prediction_error("champion_artifact_unavailable", time.perf_counter() - started_at)
+        logger.error(
+            "champion model registered but its artifact is unavailable",
+            extra={"event": "champion_unavailable", "site_id": site_id},
+            exc_info=error,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Modèle champion enregistré mais son artefact est indisponible",
+        ) from error
     except Exception as error:
         observe_prediction_error("unexpected", time.perf_counter() - started_at)
         logger.exception(

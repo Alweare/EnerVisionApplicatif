@@ -115,3 +115,26 @@ def test_retrains_when_drift_detected(mlflow_tracking_uri, monkeypatch):
     assert second_decision.should_retrain is True
     assert "data_drift_detected" in second_decision.reasons
     assert second_result is not None
+
+
+def test_retrains_and_recovers_when_champion_artifact_is_unreachable(mlflow_tracking_uri, monkeypatch, tmp_path):
+    import shutil
+
+    _patch_measurements(monkeypatch, _linear_raw_frame())
+    _patch_no_ground_truth(monkeypatch)
+    settings = _settings(mlflow_tracking_uri, min_new_rows=1_000_000)
+
+    first_decision, first_result = train_if_needed(settings=settings)
+    assert first_result is not None
+    assert first_result.promoted is True
+
+    shutil.rmtree(tmp_path / "artifacts", ignore_errors=True)
+    _patch_drift(monkeypatch, NO_DRIFT)
+
+    second_decision, second_result = train_if_needed(settings=settings)
+
+    assert second_decision.should_retrain is True
+    assert "champion_unavailable" in second_decision.reasons
+    assert second_result is not None
+    assert second_result.promoted is True
+    assert second_result.champion_unavailable is True

@@ -29,6 +29,23 @@ def train_if_needed(
 
     champion_version = registry.get_champion_version(client, settings.mlflow_model_name)
 
+    champion_unavailable = False
+    if champion_version is not None:
+        try:
+            registry.load_champion_model(settings.mlflow_model_name)
+        except registry.ChampionLoadError as error:
+            champion_unavailable = True
+            logger.error(
+                "champion is registered but its model artifact could not be loaded",
+                extra={
+                    "event": "champion_unavailable",
+                    "model_name": settings.mlflow_model_name,
+                    "model_version": champion_version.version,
+                    "run_id": champion_version.run_id,
+                },
+                exc_info=error,
+            )
+
     drift_result = None
     if champion_version is not None:
         champion_reference = registry.load_drift_reference(client, champion_version)
@@ -44,6 +61,7 @@ def train_if_needed(
         n_new_rows=n_new_rows,
         min_new_rows=settings.min_new_rows,
         real_performance=real_performance,
+        champion_unavailable=champion_unavailable,
     )
 
     logger.info(
@@ -55,6 +73,7 @@ def train_if_needed(
             "n_new_rows": n_new_rows,
             "min_new_rows": settings.min_new_rows,
             "drift_detected": drift_result.drift_detected if drift_result else None,
+            "champion_unavailable": champion_unavailable,
         },
     )
 

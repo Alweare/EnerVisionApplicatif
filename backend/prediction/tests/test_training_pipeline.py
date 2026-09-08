@@ -51,6 +51,7 @@ def test_first_candidate_becomes_champion_when_it_beats_baseline(mlflow_tracking
 
     assert result.promoted is True
     assert result.champion_mae is None
+    assert result.champion_unavailable is False
     assert result.mae < result.baseline_mae
 
     client = MlflowClient()
@@ -132,6 +133,44 @@ def test_drift_is_none_on_first_run_and_computed_on_second_run(mlflow_tracking_u
     second = run_training_pipeline(settings=settings)
     assert second.drift_result is not None
     assert set(second.drift_result.feature_scores.keys()) <= {"lag_1h", "lag_24h", "rolling_mean_24h"}
+
+
+def test_broken_champion_does_not_block_training_and_is_recovered(mlflow_tracking_uri, tmp_path):
+    import shutil
+
+    settings = _settings(mlflow_tracking_uri=mlflow_tracking_uri)
+    first = run_training_pipeline(settings=settings)
+    assert first.promoted is True
+
+    shutil.rmtree(tmp_path / "artifacts", ignore_errors=True)
+
+    second = run_training_pipeline(settings=settings)
+
+    assert second.champion_unavailable is True
+    assert second.promoted is True
+    assert "could not be loaded" in second.reason
+
+    client = MlflowClient()
+    champion = client.get_model_version_by_alias(MODEL_NAME, "champion")
+    assert str(champion.version) == second.model_version
+    assert champion.tags.get("recovered_from_broken_champion") == "true"
+
+
+def test_broken_champion_candidate_still_rejected_if_it_does_not_beat_baseline(mlflow_tracking_uri, tmp_path):
+    import shutil
+
+    settings = _settings(mlflow_tracking_uri=mlflow_tracking_uri)
+    first = run_training_pipeline(settings=settings)
+    assert first.promoted is True
+
+    shutil.rmtree(tmp_path / "artifacts", ignore_errors=True)
+
+    strict_settings = _settings(mlflow_tracking_uri=mlflow_tracking_uri, min_improvement_vs_baseline=1.5)
+    second = run_training_pipeline(settings=strict_settings)
+
+    assert second.champion_unavailable is True
+    assert second.promoted is False
+    assert "baseline" in second.reason
 
 
 def test_logged_run_has_expected_params_and_metrics(mlflow_tracking_uri):

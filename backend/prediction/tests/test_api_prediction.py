@@ -8,6 +8,7 @@ from prediction.api.app import app
 from prediction.api.controller.prediction import get_prediction_service
 from prediction.inference.feature_builder import InsufficientHistoryError
 from prediction.inference.prediction_service import NoChampionModelError, PredictionResult
+from prediction.registry.model_registry import ChampionLoadError
 
 
 class FakeService:
@@ -59,6 +60,16 @@ def test_get_prediction_returns_404_when_insufficient_history(client):
 def test_get_prediction_returns_503_when_no_champion(client):
     app.dependency_overrides[get_prediction_service] = lambda: FakeService(
         error=NoChampionModelError("consumption-predictor")
+    )
+
+    response = client.get("/api/v1/sites/SITE001/prediction")
+
+    assert response.status_code == 503
+
+
+def test_get_prediction_returns_503_when_champion_artifact_is_unreachable(client):
+    app.dependency_overrides[get_prediction_service] = lambda: FakeService(
+        error=ChampionLoadError("consumption-predictor", RuntimeError("No such artifact: ''"))
     )
 
     response = client.get("/api/v1/sites/SITE001/prediction")

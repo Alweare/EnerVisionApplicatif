@@ -23,13 +23,12 @@ def _promote_a_champion(client) -> str:
 
     X = np.array([[1], [2], [3], [4], [5]])
     y = np.array([2, 4, 6, 8, 10])
-    with mlflow.start_run() as run:
+    with mlflow.start_run():
         model = LinearRegression()
         model.fit(X, y)
-        mlflow.sklearn.log_model(model, artifact_path="model")
-        run_id = run.info.run_id
+        model_info = mlflow.sklearn.log_model(model, name="model")
 
-    version = registry.register_challenger(client, MODEL_NAME, run_id)
+    version = registry.register_challenger(client, MODEL_NAME, model_info.model_uri)
     registry.promote_to_champion(client, MODEL_NAME, version.version, "test")
     return str(version.version)
 
@@ -55,6 +54,21 @@ def test_champion_model_cache_raises_when_no_champion(mlflow_tracking_uri):
     cache = ChampionModelCache(MODEL_NAME)
 
     with pytest.raises(NoChampionModelError):
+        cache.get(client)
+
+
+def test_champion_model_cache_raises_champion_load_error_when_artifact_unreachable(
+    mlflow_tracking_uri, tmp_path
+):
+    import shutil
+
+    client = MlflowClient()
+    _promote_a_champion(client)
+    shutil.rmtree(tmp_path / "artifacts", ignore_errors=True)
+
+    cache = ChampionModelCache(MODEL_NAME)
+
+    with pytest.raises(registry.ChampionLoadError):
         cache.get(client)
 
 

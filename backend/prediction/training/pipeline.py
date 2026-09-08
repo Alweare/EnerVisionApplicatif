@@ -8,7 +8,7 @@ import pandas as pd
 from mlflow.tracking import MlflowClient
 from sklearn.metrics import mean_absolute_error
 
-from prediction.config import PredictionSettings, get_settings
+from prediction.config import CHAMPION_ALIAS, PredictionSettings, get_settings
 from prediction.dataset.dataset import (
     FEATURE_COLUMNS,
     TARGET_COLUMN,
@@ -35,6 +35,7 @@ class TrainingPipelineResult:
     mae_improvement_vs_champion: float | None
     promoted: bool
     reason: str
+    champion_unavailable: bool
     drift_result: DriftResult | None
     n_train_rows: int
     n_validation_rows: int
@@ -92,7 +93,7 @@ def run_training_pipeline(
 
     try:
         logger.info("training started", extra={"event": "training_started"})
-        model, run_id = train_model(X_train, y_train)
+        model, run_id, model_uri = train_model(X_train, y_train)
     except Exception:
         logger.exception("training failed", extra={"event": "training_failed"})
         raise
@@ -104,14 +105,31 @@ def run_training_pipeline(
 
     champion_mae_on_test: float | None = None
     improvement_vs_champion: float | None = None
+    champion_unavailable = False
     if champion_version is not None:
-        champion_model = registry.load_champion_model(settings.mlflow_model_name)
-        champion_mae_on_test = mean_absolute_error(y_test, champion_model.predict(X_test))
-        improvement_vs_champion = relative_improvement(champion_mae_on_test, test_mae)
+        try:
+            champion_model = registry.load_champion_model(settings.mlflow_model_name)
+            champion_mae_on_test = mean_absolute_error(y_test, champion_model.predict(X_test))
+            improvement_vs_champion = relative_improvement(champion_mae_on_test, test_mae)
+        except registry.ChampionLoadError as error:
+            champion_unavailable = True
+            logger.error(
+                "champion is registered but its model artifact could not be loaded, "
+                "treating this run as a service-recovery candidate",
+                extra={
+                    "event": "champion_unavailable",
+                    "model_name": settings.mlflow_model_name,
+                    "model_version": champion_version.version,
+                    "model_alias": CHAMPION_ALIAS,
+                    "run_id": champion_version.run_id,
+                },
+                exc_info=error,
+            )
 
     promoted, reason = _decide_promotion(
         settings=settings,
         has_champion=champion_version is not None,
+        champion_unavailable=champion_unavailable,
         test_mae=test_mae,
         test_baseline_mae=test_baseline_mae,
         improvement_vs_baseline=improvement_vs_baseline,
@@ -140,10 +158,14 @@ def run_training_pipeline(
         if promoted:
             registry.save_drift_reference(reference_stats)
 
-    version = registry.register_challenger(client, settings.mlflow_model_name, run_id)
+    version = registry.register_challenger(client, settings.mlflow_model_name, model_uri)
 
     if promoted:
         registry.promote_to_champion(client, settings.mlflow_model_name, version.version, reason)
+        if champion_unavailable:
+            client.set_model_version_tag(
+                settings.mlflow_model_name, version.version, "recovered_from_broken_champion", "true"
+            )
     else:
         registry.reject_challenger(client, settings.mlflow_model_name, version.version, reason)
 
@@ -172,6 +194,7 @@ def run_training_pipeline(
         mae_improvement_vs_champion=improvement_vs_champion,
         promoted=promoted,
         reason=reason,
+        champion_unavailable=champion_unavailable,
         drift_result=drift_result,
         n_train_rows=len(train),
         n_validation_rows=len(validation),
@@ -182,6 +205,7 @@ def run_training_pipeline(
 def _decide_promotion(
     settings: PredictionSettings,
     has_champion: bool,
+    champion_unavailable: bool,
     test_mae: float,
     test_baseline_mae: float,
     improvement_vs_baseline: float,
@@ -197,6 +221,12 @@ def _decide_promotion(
 
     if not has_champion:
         return True, "no existing champion, candidate beats the baseline"
+
+    if champion_unavailable:
+        return True, (
+            "existing champion model could not be loaded (artifact unavailable); "
+            f"candidate beats baseline_mae={test_baseline_mae:.4f}, promoted to restore a usable champion"
+        )
 
     if improvement_vs_champion is not None and improvement_vs_champion >= settings.min_improvement_vs_champion:
         return True, (

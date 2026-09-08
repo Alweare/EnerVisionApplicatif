@@ -95,6 +95,28 @@ def test_real_performance_within_tolerance_does_not_trigger_retrain():
     assert decision.should_retrain is False
 
 
+def test_champion_unavailable_triggers_retrain():
+    decision = should_retrain(
+        has_champion=True,
+        drift_result=NO_DRIFT,
+        n_new_rows=10,
+        min_new_rows=1000,
+        champion_unavailable=True,
+    )
+    assert decision.should_retrain is True
+    assert "champion_unavailable" in decision.reasons
+
+
+def test_champion_unavailable_defaults_to_false():
+    decision = should_retrain(
+        has_champion=True,
+        drift_result=NO_DRIFT,
+        n_new_rows=10,
+        min_new_rows=1000,
+    )
+    assert "champion_unavailable" not in decision.reasons
+
+
 def test_missing_real_performance_is_not_a_reason_to_retrain():
     decision = should_retrain(
         has_champion=True,
