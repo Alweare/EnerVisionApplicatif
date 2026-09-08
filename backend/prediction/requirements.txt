@@ -3,3 +3,4 @@ sqlalchemy
 psycopg2-binary
 scikit-learn
 mlflow
+dvc[ssh]

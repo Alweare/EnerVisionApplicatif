@@ -27,6 +27,12 @@ services:
     env_file:
       - .env.local
 
+  prediction:
+    environment:
+      DVC_PUSH: "0"
+    env_file:
+      - .env.local
+
 networks:
   enervision_network:
     external: false
