@@ -11,11 +11,11 @@ from formatting import (
     site_type_label,
 )
 from services.measurement_service import get_current_measurement, get_measurement_history
-from services.site_service import get_sites
+from services.site_service import get_my_sites
 
 st.header("Dashboard")
 
-sites = get_sites()
+sites = get_my_sites()
 
 if not sites:
     st.warning("Aucun site associé à votre compte.")

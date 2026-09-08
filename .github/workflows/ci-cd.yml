@@ -2,8 +2,6 @@ name: CI/CD
 
 on:
   push:
-    branches:
-      - main
 
   pull_request:
     branches:
@@ -49,10 +47,8 @@ jobs:
         uses: dorny/paths-filter@v4
         with:
           filters: |
-            backend/authentication: 'backend/authentication/**'
             backend/etl: 'backend/etl/**'
             backend/prediction: 'backend/prediction/**'
-            backend/recommandation: 'backend/recommandation/**'
             backend/core: 'backend/core/**'
             backend/workeringestion: 'backend/workeringestion/**'
             frontend: 'frontend/**'
@@ -61,8 +57,26 @@ jobs:
         id: matrix
         env:
           CHANGES: ${{ steps.filter.outputs.changes }}
+          # main = on redéploie tout, changé ou non (garantit un environnement
+          # cohérent après un merge develop -> main). Cette liste doit rester
+          # synchronisée avec les clés de `filters:` ci-dessus.
+          # backend/recommendation n'a pas encore de Dockerfile (package vide,
+          # jamais buildé) : volontairement absent tant qu'il n'est pas
+          # déployable. authentication/ (ex backend/authentication) n'est pas
+          # non plus dans cette liste : Keycloak est géré hors de ce repo,
+          # jamais redéployé automatiquement (voir deploy.sh, qui le rejette).
+          ALL_SERVICES: >-
+            ["backend/etl","backend/prediction",
+            "backend/core","backend/workeringestion","frontend"]
+          DEPLOY_ALL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           set -euo pipefail
+
+          if [ "$DEPLOY_ALL" = "true" ]; then
+            PATHS="$ALL_SERVICES"
+          else
+            PATHS="$CHANGES"
+          fi
 
           SERVICES=$(jq -c '
             [ .[] | {
@@ -75,7 +89,7 @@ jobs:
                   else "."
                   end
                 )
-              } ]' <<< "$CHANGES")
+              } ]' <<< "$PATHS")
 
           if [ "$SERVICES" = "[]" ]; then
             HAS_CHANGES=false
@@ -116,7 +130,26 @@ jobs:
         with:
           fetch-depth: 0
 
+      # actions/setup-python avec cache: pip exige de trouver au moins un
+      # requirements*.txt : plante avant même d'atteindre la vérification
+      # plus bas pour un service sans code Python (aucun cas actuel dans la
+      # matrice, gardé par sécurité si un futur package n'en a pas).
+      - name: Check for Python files
+        id: check
+        env:
+          SERVICE_DIR: ${{ matrix.service.dir }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$(find "$SERVICE_DIR" -name '*.py' -print -quit)" ]; then
+            echo "::notice::Aucun fichier Python dans $SERVICE_DIR (ex. image Keycloak) — tests ignorés."
+            echo "has_python=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_python=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Python
+        if: steps.check.outputs.has_python == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -124,6 +157,7 @@ jobs:
           cache-dependency-path: ${{ matrix.service.dir }}/requirements*.txt
 
       - name: Install dependencies
+        if: steps.check.outputs.has_python == 'true'
         working-directory: ${{ matrix.service.dir }}
         run: |
           set -euo pipefail
@@ -141,16 +175,12 @@ jobs:
           pip install pytest pytest-cov
 
       - name: Run tests for impacted service
+        if: steps.check.outputs.has_python == 'true'
         env:
           SERVICE_DIR: ${{ matrix.service.dir }}
           SERVICE_ROOT: ${{ matrix.service.root }}
         run: |
           set -euo pipefail
-
-          if [ -z "$(find "$SERVICE_DIR" -name '*.py' -print -quit)" ]; then
-            echo "::notice::Aucun fichier Python dans $SERVICE_DIR (ex. image Keycloak) — tests ignorés."
-            exit 0
-          fi
 
           TEST_DIR="$SERVICE_DIR/tests"
 
@@ -180,8 +210,8 @@ jobs:
   # ============================================================
   # STAGE 2 : BUILD + SCAN
   #
-  # PR   -> build + scan
-  # main -> build + scan
+  # PR              -> build + scan
+  # main/develop    -> build + scan
   # ============================================================
 
   build:
@@ -195,7 +225,10 @@ jobs:
       needs.changes.outputs.has_changes == 'true' &&
       (
         github.event_name == 'pull_request' ||
-        (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        (
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        )
       )
 
     runs-on: ubuntu-latest
@@ -242,7 +275,7 @@ jobs:
       - name: Save Docker image
         if: >
           github.event_name == 'push' &&
-          github.ref == 'refs/heads/main'
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         run: |
           set -euo pipefail
 
@@ -253,7 +286,7 @@ jobs:
       - name: Upload Docker image artifact
         if: >
           github.event_name == 'push' &&
-          github.ref == 'refs/heads/main'
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         uses: actions/upload-artifact@v7
         with:
           name: docker-image-${{ matrix.service.name }}
@@ -265,7 +298,8 @@ jobs:
   # ============================================================
   # STAGE 3 : PUBLISH
   #
-  # main -> SHA + latest
+  # main    -> SHA + latest
+  # develop -> SHA seulement (latest reste réservé à main)
   # ============================================================
 
   publish:
@@ -278,7 +312,7 @@ jobs:
     if: >
       needs.changes.outputs.has_changes == 'true' &&
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/main'
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -318,8 +352,10 @@ jobs:
 
           docker push "$IMAGE:${{ github.sha }}"
 
-          docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
-          docker push "$IMAGE:latest"
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          fi
 
 
   # ============================================================
@@ -336,7 +372,7 @@ jobs:
     if: >
       needs.changes.outputs.has_changes == 'true' &&
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/main'
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
     runs-on:
       - self-hosted
@@ -393,7 +429,7 @@ jobs:
     if: >
       needs.changes.outputs.has_changes == 'true' &&
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/main'
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
     runs-on:
       - self-hosted

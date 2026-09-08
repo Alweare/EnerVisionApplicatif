@@ -6,9 +6,12 @@
 #
 # Ne JAMAIS combiner avec docker-compose-prod.yaml.
 services:
-  backend:
-    volumes:
-      - ./backend/core:/backend/core
+  core:
+    command: uvicorn core.main:app --host 0.0.0.0 --port 8000 --reload
+    env_file:
+      - .env.local
+
+  core:
     command: uvicorn core.main:app --host 0.0.0.0 --port 8000 --reload
     env_file:
       - .env.local
@@ -22,8 +25,6 @@ services:
       - ./backend/workeringestion:/backend/workeringestion
 
   etl:
-    volumes:
-      - ./backend/etl:/backend/etl
     env_file:
       - .env.local
 

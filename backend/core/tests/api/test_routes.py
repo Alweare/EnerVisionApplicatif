@@ -69,12 +69,12 @@ def _measurement(site_id: str = "SITE001", date: datetime | None = None) -> Meas
     )
 
 
-# --- GET /api/v1/backend/sites --------------------------------------------
+# --- GET /api/v1/sites ---------------------------------------------------
 
 def test_list_sites_returns_200_with_all_sites(site_service):
     site_service.list_sites.return_value = [_site("SITE001"), _site("SITE002")]
 
-    response = client.get("/api/v1/backend/sites")
+    response = client.get("/api/v1/sites")
 
     assert response.status_code == 200
     body = response.json()
@@ -85,18 +85,18 @@ def test_list_sites_returns_200_with_all_sites(site_service):
 def test_list_sites_returns_empty_list(site_service):
     site_service.list_sites.return_value = []
 
-    response = client.get("/api/v1/backend/sites")
+    response = client.get("/api/v1/sites")
 
     assert response.status_code == 200
     assert response.json() == []
 
 
-# --- GET /api/v1/backend/sites/{site_id} --------------------------------
+# --- GET /api/v1/sites/{site_id} ---------------------------------------
 
 def test_get_site_returns_200_with_site(site_service):
     site_service.get_site.return_value = _site("SITE001")
 
-    response = client.get("/api/v1/backend/sites/SITE001")
+    response = client.get("/api/v1/sites/SITE001")
 
     assert response.status_code == 200
     body = response.json()
@@ -108,7 +108,7 @@ def test_get_site_returns_200_with_site(site_service):
 def test_get_site_returns_404_when_site_unknown(site_service):
     site_service.get_site.side_effect = SiteNotFoundError("SITE999")
 
-    response = client.get("/api/v1/backend/sites/SITE999")
+    response = client.get("/api/v1/sites/SITE999")
 
     assert response.status_code == 404
     assert "SITE999" in response.json()["detail"]

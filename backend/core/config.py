@@ -4,7 +4,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # Configuration non sensible
     app_environment: str = "development"
 
     keycloak_url: str

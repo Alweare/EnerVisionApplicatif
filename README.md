@@ -30,7 +30,10 @@ est un conteneur indépendant, avec son propre `Dockerfile` :
 `consumption`, `prediction`, `recommendation` n'ont pour l'instant ni
 `main.py` ni `Dockerfile` : ce sont du code utilisé par d'autres services
 (ex. `etl` par `workeringestion`), pas encore des services à part entière.
-`backend/authentication` est un dossier vide, sans usage actuel.
+`authentication/` (à la racine, hors de `backend/`) buildé l'image Keycloak
+"prod-style" (profile `prod`, jamais démarrée par défaut) — Keycloak en
+production est géré indépendamment de ce repo et n'est jamais redéployé
+par la CI/CD (voir `deploy.sh`).
 
 ## Authentification
 
@@ -70,7 +73,7 @@ Deux environnements, deux fichiers, chaque variable définie une seule fois :
 | Fichier (exemple, versionné) | Copier en | Utilisé par |
 |---|---|---|
 | `.env.local.example` | `.env.local` | `.\docker.ps1 local ...` |
-| `.env.production.example` | `.env` | `docker compose up -d` (chargé automatiquement par Compose) |
+| `.env.production.example` | `.env` | `.\docker.ps1 prod ...` |
 
 ```powershell
 Copy-Item .env.local.example .env.local
@@ -79,11 +82,11 @@ Copy-Item .env.production.example .env   # à remplir avec les vraies valeurs de
 
 | Variable | Où | Description |
 |---|---|---|
-| `KEYCLOAK_URL` | backend | URL de Keycloak joignable **depuis les conteneurs** (local : `http://keycloak:8080` ; prod : instance distante) |
-| `KEYCLOAK_REALM` | backend | Realm Keycloak (ex: `enervision`) |
-| `KEYCLOAK_CLIENT_ID` | backend | Audience attendue dans les access tokens (client API, ex: `enervision-api`) |
-| `BACKEND_URL` | frontend | URL de `backend/core` joignable depuis le conteneur frontend (ex: `http://backend:8000`) |
-| `APP_ENVIRONMENT` | backend | `development` en local, `production` en prod (cosmétique côté app, ne pilote pas Compose) |
+| `KEYCLOAK_URL` | core | URL de Keycloak joignable **depuis les conteneurs** (local : `http://keycloak:8080` ; prod : instance distante) |
+| `KEYCLOAK_REALM` | core | Realm Keycloak (ex: `enervision`) |
+| `KEYCLOAK_CLIENT_ID` | core | Audience attendue dans les access tokens (client API, ex: `enervision-api`) |
+| `CORE_URL` | frontend | URL de `backend/core` joignable depuis le conteneur frontend (ex: `http://core:8000`) |
+| `APP_ENVIRONMENT` | core | `development` en local, `production` en prod (cosmétique côté app, ne pilote pas Compose) |
 
 `frontend/.env.template` reste disponible pour lancer le frontend hors Docker.
 
@@ -107,36 +110,40 @@ Aucun secret n'est commité ni hardcodé.
 ## Mode local vs mode production
 
 ```text
-docker compose up -d                =  PRODUCTION
-                                        (backend, health, frontend,
-                                         worker-ingestion uniquement ; pas
-                                         de Keycloak/Traefik locaux ; pas
-                                         de --reload)
+.\docker.ps1 prod up -d             =  PRODUCTION
+                                        (core, frontend, worker-ingestion,
+                                         etl, prediction, postgres,
+                                         migration, mlflow ; pas de
+                                         Keycloak/Traefik locaux ; pas de
+                                         --reload)
 
 .\docker.ps1 local up -d            =  LOCAL
-                                        (+ PostgreSQL, Keycloak local,
-                                         Traefik local, hot-reload, bind
-                                         mounts du code)
+                                        (+ Keycloak local, Traefik local,
+                                         hot-reload, bind mounts du code)
 ```
 
-Le fichier `docker-compose.yaml` (utilisé seul, sans `-f`) est la base
-commune, sûre par défaut pour un déploiement distant : aucune dépendance
-à Keycloak/Traefik locaux, pas de bind mount ni de `--reload`. Le mode
-local ajoute des fichiers Compose séparés via `-f`, jamais fusionnés
-manuellement :
+`docker.ps1` est le **seul point d'entrée supporté**, en local comme en
+prod — ne jamais invoquer `docker compose` directement : `docker-compose.yaml`
+seul ne suffit pas (il dépend de `docker-compose-data.yaml` pour
+`postgres`/`migration`, via `depends_on`) et échoue si on l'utilise sans
+`-f`. Le mode local ajoute des fichiers Compose séparés via `-f`, jamais
+fusionnés manuellement :
 
 | Fichier | Rôle | Utilisé en prod ? |
 |---|---|---|
-| `docker-compose.yaml` | services applicatifs (base) | Oui (seul) |
-| `docker-compose-postgres.yaml` | PostgreSQL + migrations | Non |
+| `docker-compose.yaml` | services applicatifs (base) | Oui |
+| `docker-compose-data.yaml` | PostgreSQL, migrations, MLflow | Oui |
 | `docker-compose-keycloak.yaml` | Keycloak local | Non |
 | `docker-compose-traefik.yml` | Traefik local (HTTPS) | Non |
 | `docker-compose.local.yml` | hot-reload, bind mounts, réseau non-externe | Non |
 
-`docker-compose.yaml` **n'est pas** le pipeline de déploiement CI/CD : le
-déploiement réel (`deploy.sh`, sur le serveur) cible `docker-compose-prod.yaml`
-(images GHCR, par service), géré séparément. Ce README documente la
-configuration à utiliser depuis un poste développeur.
+`docker.ps1 prod`/`docker-compose.yaml` **n'est pas** le pipeline de
+déploiement CI/CD réel : le déploiement en production (`deploy.sh`, sur le
+serveur) lance chaque service individuellement via `docker run` à partir
+des images GHCR, sans passer par `docker compose`. `docker-compose-prod.yaml`
+(images GHCR, par service) documente la configuration cible de ce
+déploiement mais n'est pas encore invoqué directement par `deploy.sh`. Ce
+README documente la configuration à utiliser depuis un poste développeur.
 
 ### `docker.ps1` — sélecteur léger
 
@@ -149,9 +156,9 @@ supplémentaire) :
 .\docker.ps1 local down        # arrête
 .\docker.ps1 local down -v     # arrête ET repart de zéro (efface les volumes : DB, realm Keycloak)
 .\docker.ps1 local ps
-.\docker.ps1 local logs -f backend
+.\docker.ps1 local logs -f core
 
-.\docker.ps1 prod up -d        # équivalent explicite de : docker compose up -d
+.\docker.ps1 prod up -d        # démarre la stack en configuration production
 ```
 
 ### Keycloak local (développement uniquement)
@@ -279,8 +286,8 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 825 -keyout certs\key.pem -out c
 
 - Frontend : `https://localhost/` (Traefik) ou `http://localhost:8501` (direct)
 - Keycloak : `http://localhost:8080` (admin `admin`/`admin`)
-- Backend (`core`) : `https://localhost/api/...` (Traefik) ou `http://localhost:8000/docs` (direct)
-- Health : `https://localhost/health` (Traefik) ou `http://localhost:8002/health` (direct)
+- Core : `https://localhost/api/...` (Traefik) ou `http://localhost:8002/docs` (direct)
+- Health : `https://localhost/health` (Traefik, servi par `core`) ou `http://localhost:8002/health` (direct)
 
 ## Arrêter le local
 
@@ -301,16 +308,15 @@ démarrage depuis `keycloak/realm-export.json` :
 
 ## Production
 
-```bash
-docker compose up -d
+```powershell
+.\docker.ps1 prod up -d
 ```
 
-utilise `docker-compose.yaml` seul (configuration commune, base de
-production) avec le fichier `.env` (copié depuis
-`.env.production.example`) : **pas** de Keycloak local, **pas** de
-Traefik local, pas de bind mount ni de `--reload`. L'application se
-connecte au Keycloak déjà déployé sur l'infrastructure via `KEYCLOAK_URL`.
-Équivalent explicite : `.\docker.ps1 prod up -d`.
+combine `docker-compose.yaml` et `docker-compose-data.yaml` avec le
+fichier `.env` (copié depuis `.env.production.example`) : **pas** de
+Keycloak local, **pas** de Traefik local, pas de bind mount ni de
+`--reload`. L'application se connecte au Keycloak déjà déployé sur
+l'infrastructure via `KEYCLOAK_URL`.
 
 ## Tester le flux d'authentification
 
@@ -330,10 +336,10 @@ Avec le Keycloak local, se connecter avec `test` / `test`.
 Pour tester `backend/core` isolément :
 
 ```bash
-curl http://localhost:8000/api/v1/me
+curl http://localhost:8002/api/v1/me
 # -> 401 sans token
 
-curl -H "Authorization: Bearer <access_token>" http://localhost:8000/api/v1/me
+curl -H "Authorization: Bearer <access_token>" http://localhost:8002/api/v1/me
 # -> 200 avec l'identité extraite du token
 ```
 

@@ -3,10 +3,6 @@ import pytest
 
 from workeringestion.api import blob_storage, mock_api
 
-# Jeux de données figés, calqués sur la forme réelle de la Mock API
-# (vérifiée en direct sur http://10.105.200.45:8000) mais avec des valeurs
-# fixes pour des assertions déterministes en tests.
-
 SITES_JSON = [
     {"site_id": "SITE001", "site_type": "office", "site_name": "Bureau Paris La Défense",
      "location": "Paris, France", "capacity_kw": 200.0, "status": "active"},
@@ -61,6 +57,29 @@ CURRENT_READINGS_JSON = {
     },
 }
 
+ALERTS_JSON = [
+    {
+        "alert_id": "ALR-SITE002-1718458320",
+        "site_id": "SITE002",
+        "severity": "critical",
+        "type": "outage",
+        "message": "Risque de surcharge sur Usine Lyon Vénissieux",
+        "value": 812.5,
+        "threshold": 720.0,
+        "created_at": "2024-06-15T14:32:00",
+    },
+    {
+        "alert_id": "ALR-SITE001-1718458500",
+        "site_id": "SITE001",
+        "severity": "warning",
+        "type": "consumption",
+        "message": "Consommation au-dessus du seuil sur Bureau Paris La Défense",
+        "value": 187.2,
+        "threshold": 180.0,
+        "created_at": "2024-06-15T14:35:00",
+    },
+]
+
 
 def fake_response(status_code: int, json_data=None) -> httpx.Response:
     request = httpx.Request("GET", "http://mock-api.test")
@@ -74,6 +93,9 @@ def mock_httpx(monkeypatch):
     async def fake_get(url: str) -> httpx.Response:
         if url.endswith("/api/v1/sites"):
             return fake_response(200, SITES_JSON)
+
+        if url.endswith("/api/v1/alerts"):
+            return fake_response(200, ALERTS_JSON)
 
         if url.endswith("/current"):
             site_id = url.rsplit("/", 2)[-2]

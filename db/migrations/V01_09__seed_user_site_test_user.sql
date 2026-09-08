@@ -1,0 +1,4 @@
+INSERT INTO ener.user_site (user_id, site_id) VALUES
+    ('7e57c0de-0000-4000-8000-000000000001', 'SITE001'),
+    ('7e57c0de-0000-4000-8000-000000000001', 'SITE003')
+ON CONFLICT (user_id, site_id) DO NOTHING;

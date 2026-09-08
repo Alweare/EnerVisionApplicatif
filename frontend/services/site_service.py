@@ -1,17 +1,16 @@
 import os
 
-import requests
+from services.api_client import get
 
-BACKEND_URL = os.environ["BACKEND_URL"]
 
 
 def get_sites() -> list[dict]:
-    response = requests.get(f"{BACKEND_URL}/api/v1/backend/sites", timeout=10)
-    response.raise_for_status()
-    return response.json()
+    return get("/api/v1/sites", timeout=10)
+
+
+def get_my_sites() -> list[dict]:
+    return get("/api/v1/me/sites", timeout=10)
 
 
 def get_site(site_id: str) -> dict:
-    response = requests.get(f"{BACKEND_URL}/api/v1/backend/sites/{site_id}", timeout=10)
-    response.raise_for_status()
-    return response.json()
+    return get(f"/api/v1/sites/{site_id}", timeout=10)

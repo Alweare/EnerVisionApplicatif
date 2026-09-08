@@ -6,7 +6,7 @@ from core.api.service.site_service import SiteNotFoundError, SiteService
 from shared.database import get_db
 from core.schemas import ErrorDetail
 
-router = APIRouter(prefix="/api/v1/backend/sites", tags=["Sites"])
+router = APIRouter(prefix="/api/v1/sites", tags=["Sites"])
 
 
 @router.get(
