@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-DVC_ROOT = Path(os.environ.get("DVC_ROOT", Path(__file__).resolve().parents[3]))
+DVC_ROOT = Path(os.environ["DVC_ROOT"]).resolve()
 
 
 class DatasetVersioningError(RuntimeError):
