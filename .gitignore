@@ -230,3 +230,9 @@ __marimo__/
 
 # Secrets Docker (docker-compose.yaml -> secrets:) — jamais commités
 /secrets/
+
+# Dataset versionné par DVC : le CSV est ignoré via data/.gitignore généré par
+# `dvc add` ; seuls data/training_dataset.csv.dvc et data/.gitignore vont dans git.
+
+# MLflow : runs créés en lançant les tests en local
+/mlruns/
