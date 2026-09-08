@@ -216,6 +216,7 @@ volumes:
 networks:
   enervision_network:
     external: true
+    name: enervision_network
 
 secrets:
   keycloak_client_secret:
