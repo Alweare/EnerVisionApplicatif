@@ -2,8 +2,6 @@ name: CI/CD
 
 on:
   push:
-    branches:
-      - main
 
   pull_request:
     branches:
@@ -61,8 +59,22 @@ jobs:
         id: matrix
         env:
           CHANGES: ${{ steps.filter.outputs.changes }}
+          # main = on redéploie tout, changé ou non (garantit un environnement
+          # cohérent après un merge develop -> main). Cette liste doit rester
+          # synchronisée avec les clés de `filters:` ci-dessus.
+          ALL_SERVICES: >-
+            ["backend/authentication","backend/etl","backend/prediction",
+            "backend/recommandation","backend/core","backend/workeringestion",
+            "frontend"]
+          DEPLOY_ALL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           set -euo pipefail
+
+          if [ "$DEPLOY_ALL" = "true" ]; then
+            PATHS="$ALL_SERVICES"
+          else
+            PATHS="$CHANGES"
+          fi
 
           SERVICES=$(jq -c '
             [ .[] | {
@@ -75,7 +87,7 @@ jobs:
                   else "."
                   end
                 )
-              } ]' <<< "$CHANGES")
+              } ]' <<< "$PATHS")
 
           if [ "$SERVICES" = "[]" ]; then
             HAS_CHANGES=false
@@ -180,8 +192,8 @@ jobs:
   # ============================================================
   # STAGE 2 : BUILD + SCAN
   #
-  # PR   -> build + scan
-  # main -> build + scan
+  # PR              -> build + scan
+  # main/develop    -> build + scan
   # ============================================================
 
   build:
@@ -195,7 +207,10 @@ jobs:
       needs.changes.outputs.has_changes == 'true' &&
       (
         github.event_name == 'pull_request' ||
-        (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        (
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        )
       )
 
     runs-on: ubuntu-latest
@@ -242,7 +257,7 @@ jobs:
       - name: Save Docker image
         if: >
           github.event_name == 'push' &&
-          github.ref == 'refs/heads/main'
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         run: |
           set -euo pipefail
 
@@ -253,7 +268,7 @@ jobs:
       - name: Upload Docker image artifact
         if: >
           github.event_name == 'push' &&
-          github.ref == 'refs/heads/main'
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         uses: actions/upload-artifact@v7
         with:
           name: docker-image-${{ matrix.service.name }}
@@ -265,7 +280,8 @@ jobs:
   # ============================================================
   # STAGE 3 : PUBLISH
   #
-  # main -> SHA + latest
+  # main    -> SHA + latest
+  # develop -> SHA seulement (latest reste réservé à main)
   # ============================================================
 
   publish:
@@ -278,7 +294,7 @@ jobs:
     if: >
       needs.changes.outputs.has_changes == 'true' &&
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/main'
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -318,8 +334,10 @@ jobs:
 
           docker push "$IMAGE:${{ github.sha }}"
 
-          docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
-          docker push "$IMAGE:latest"
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          fi
 
 
   # ============================================================
@@ -336,7 +354,7 @@ jobs:
     if: >
       needs.changes.outputs.has_changes == 'true' &&
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/main'
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
     runs-on:
       - self-hosted
@@ -393,7 +411,7 @@ jobs:
     if: >
       needs.changes.outputs.has_changes == 'true' &&
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/main'
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
     runs-on:
       - self-hosted
