@@ -1,5 +1,3 @@
-"""Tests de formatting.py — fonctions pures de mise en forme du dashboard."""
-
 from datetime import datetime, timedelta, timezone
 
 import pytest

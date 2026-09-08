@@ -1,11 +1,18 @@
+import logging
 import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+
 from core.api.controller.alert import router as alert_router
 from core.api.controller.health import router as health_router
+from core.api.controller.me import router as me_router
 from core.api.controller.measurement import router as measurement_router
 from core.api.controller.site import router as site_router
 from core.api.routes import router as auth_router
@@ -36,5 +43,8 @@ app.include_router(site_router)
 app.include_router(measurement_router)
 app.include_router(alert_router)
 app.include_router(auth_router)
+app.include_router(me_router)
 
+# Métriques Prometheus (requêtes, latence, codes de statut par endpoint),
+# exposées sur /metrics — cf. EN-280.
 Instrumentator().instrument(app).expose(app)

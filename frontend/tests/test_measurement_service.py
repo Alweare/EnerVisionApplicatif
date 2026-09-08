@@ -1,7 +1,3 @@
-"""Tests de services/measurement_service.py — appels HTTP vers
-/api/v1/backend/sites/{site_id}/current et /measurements.
-"""
-
 from unittest.mock import Mock, patch
 
 import pytest
@@ -12,7 +8,7 @@ from services.measurement_service import (
     get_measurement_history,
 )
 
-BACKEND_URL = "http://backend:8000"
+CORE_URL = "http://core:8000"
 
 
 def _mock_response(json_data=None, *, ok=True, status_code=200):
@@ -40,7 +36,7 @@ def test_get_current_measurement_calls_expected_url_and_returns_json(mock_get):
     result = get_current_measurement("SITE001")
 
     mock_get.assert_called_once_with(
-        f"{BACKEND_URL}/api/v1/backend/sites/SITE001/current", timeout=10
+        f"{CORE_URL}/api/v1/backend/sites/SITE001/current", timeout=10
     )
     assert result == payload
 
@@ -70,7 +66,7 @@ def test_get_measurement_history_uses_default_pagination(mock_get):
     result = get_measurement_history("SITE001")
 
     mock_get.assert_called_once_with(
-        f"{BACKEND_URL}/api/v1/backend/sites/SITE001/measurements",
+        f"{CORE_URL}/api/v1/backend/sites/SITE001/measurements",
         params={"limit": 100, "offset": 0},
         timeout=10,
     )
@@ -84,7 +80,7 @@ def test_get_measurement_history_forwards_custom_pagination(mock_get):
     get_measurement_history("SITE001", limit=10, offset=20)
 
     mock_get.assert_called_once_with(
-        f"{BACKEND_URL}/api/v1/backend/sites/SITE001/measurements",
+        f"{CORE_URL}/api/v1/backend/sites/SITE001/measurements",
         params={"limit": 10, "offset": 20},
         timeout=10,
     )

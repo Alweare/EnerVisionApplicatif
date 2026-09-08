@@ -38,7 +38,7 @@ if ($Mode -eq "local") {
     $ComposeArgs = @(
         "--env-file", ".env.local",
         "-f", "docker-compose.yaml",
-        "-f", "docker-compose-postgres.yaml",
+        "-f", "docker-compose-data.yaml",
         "-f", "docker-compose-keycloak.yaml",
         "-f", "docker-compose-traefik.yml",
         "-f", "docker-compose.local.yml"
@@ -50,7 +50,10 @@ else {
         exit 1
     }
 
-    $ComposeArgs = @()
+    $ComposeArgs = @(
+        "-f", "docker-compose.yaml",
+        "-f", "docker-compose-data.yaml"
+    )
 }
 
 & docker compose @ComposeArgs @Rest

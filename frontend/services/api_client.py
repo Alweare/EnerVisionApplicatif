@@ -1,9 +1,3 @@
-"""Client HTTP centralisé pour les appels du frontend vers backend/core.
-
-Attache automatiquement l'access token Keycloak de l'utilisateur connecté et
-gère proprement les cas d'erreur (backend injoignable, session expirée).
-"""
-
 import os
 
 import requests
@@ -11,20 +5,21 @@ import streamlit as st
 
 from authentification.auth import get_access_token
 
-BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
+CORE_URL = os.environ.get("CORE_URL")
 
 
 class BackendUnavailableError(Exception):
     """Le backend core est injoignable ou a répondu par une erreur inattendue."""
 
-
-def get(path: str, timeout: float = 5.0) -> dict:
-    """Appelle GET {BACKEND_URL}{path} avec le token de l'utilisateur connecté."""
+def get(path: str, params: dict | None = None, timeout: float = 5.0) -> dict:
+    """Appelle GET {CORE_URL}{path} avec le token de l'utilisateur connecté."""
     token = get_access_token()
     headers = {"Authorization": f"Bearer {token}"} if token else {}
 
     try:
-        response = requests.get(f"{BACKEND_URL}{path}", headers=headers, timeout=timeout)
+        response = requests.get(
+            f"{CORE_URL}{path}", params=params, headers=headers, timeout=timeout
+        )
     except requests.RequestException as error:
         raise BackendUnavailableError("Le service backend est indisponible.") from error
 

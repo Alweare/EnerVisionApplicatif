@@ -1,9 +1,6 @@
-import os
 from datetime import datetime
 
-import requests
-
-BACKEND_URL = os.environ["BACKEND_URL"]
+from services.api_client import get
 
 
 def get_alerts(
@@ -24,8 +21,4 @@ def get_alerts(
     if severities:
         params["severity"] = severities
 
-    response = requests.get(
-        f"{BACKEND_URL}/api/v1/backend/alerts", params=params, timeout=10
-    )
-    response.raise_for_status()
-    return response.json()
+    return get("/api/v1/backend/alerts", params=params, timeout=10)

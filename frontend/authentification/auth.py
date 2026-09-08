@@ -1,19 +1,8 @@
-"""Authentification du frontend via Keycloak (OpenID Connect, Authorization Code Flow).
-
-L'utilisateur saisit son identifiant/mot de passe uniquement sur Keycloak :
-Streamlit ne reçoit et ne stocke jamais le mot de passe. La session est gérée
-nativement par Streamlit (st.login / st.logout / st.user), sans mécanisme
-parallèle.
-"""
-
 import streamlit as st
 
 
 def require_authentication() -> None:
-    """Bloque l'accès à la page tant que l'utilisateur n'est pas authentifié.
-
-    À appeler en tout premier, avant tout contenu métier.
-    """
+    """Bloque l'accès à la page tant que l'utilisateur n'est pas authentifié."""
     if st.user.is_logged_in:
         return
 
@@ -39,10 +28,7 @@ def render_user_menu() -> None:
 
 
 def get_access_token() -> str | None:
-    """Access token Keycloak de l'utilisateur courant, pour appeler backend/core.
-
-    Ne jamais logger, afficher ou persister la valeur retournée.
-    """
+    """Access token Keycloak de l'utilisateur courant, pour appeler backend/core."""
     try:
         return st.user.tokens["access"]
     except (KeyError, AttributeError):

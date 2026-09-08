@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from etl.models.site import Site
 from etl.models.measurement import Measurement
+from etl.service.alert_service import AlertService
 from etl.service.file_tracking_service import FileTrackingService
 from etl.service.measurement_service import MeasurementService
 from azure.storage.blob import BlobServiceClient
@@ -21,6 +22,7 @@ FIELDS_TO_FILL = [
 DEFAULT_FORWARD_FILL_DEPTH = 3
 
 BLOB_PREFIX = "measures/"
+ALERT_PREFIX = "alert/"
 DEFAULT_LOOKBACK_MINUTES = 24 * 60
 
 
@@ -42,6 +44,7 @@ class ETLService:
     def __init__(self, db: Session):
         self.db = db
         self.measurement_service = MeasurementService(db)
+        self.alert_service = AlertService(db)
         self.file_tracking_service = FileTrackingService(db)
 
         account_name = os.getenv("AZURE_STORAGE_ACCOUNT")
@@ -67,13 +70,15 @@ class ETLService:
 
     # --- Extraction -------------------------------------------------------
 
-    def _day_prefixes(self, cutoff: datetime, now: datetime) -> list[str]:
+    def _day_prefixes(
+        self, cutoff: datetime, now: datetime, root: str = BLOB_PREFIX
+    ) -> list[str]:
         """Préfixes des jours couverts par la fenêtre. Un seul en général,
         deux quand la fenêtre enjambe minuit."""
         prefixes = []
         day = cutoff.date()
         while day <= now.date():
-            prefixes.append(f"{BLOB_PREFIX}{day:%Y/%m/%d}/")
+            prefixes.append(f"{root}{day:%Y/%m/%d}/")
             day += timedelta(days=1)
         return prefixes
 
@@ -248,6 +253,74 @@ class ETLService:
 
     # --- Orchestration ----------------------------------------------------
     #récupère les fichiers récents triés chronologiquement
+    # --- Alertes ----------------------------------------------------------
+ 
+    def list_recent_alert_blobs(self, lookback_minutes: int = None) -> list[str]:
+
+        minutes = self.lookback_minutes if lookback_minutes is None else lookback_minutes
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(minutes=minutes)
+
+        recent = [
+            blob
+            for prefix in self._day_prefixes(cutoff, now, ALERT_PREFIX)
+            for blob in self.container_client.list_blobs(name_starts_with=prefix)
+            if not blob.name.endswith("/") and blob.last_modified >= cutoff
+        ]
+        recent.sort(key=lambda blob: blob.last_modified)
+        return [blob.name for blob in recent]
+
+    def download_alerts(self, blob_path: str) -> list[dict]:
+        content = self.container_client.get_blob_client(blob_path).download_blob().readall()
+        data = json.loads(content)
+        return data if isinstance(data, list) else [data]
+
+    def stage_alert_blob(self, blob_path: str) -> int:
+        raw_alerts = self.download_alerts(blob_path)
+
+        known_sites = {site_id for (site_id,) in self.db.query(Site.site_id).all()}
+        alerts = [
+            self.alert_service.build_alert(raw)
+            for raw in raw_alerts
+            if self.alert_service.is_valid(raw) and raw["site_id"] in known_sites
+        ]
+
+        inserted = self.alert_service.save_all(alerts)
+        self.file_tracking_service.mark_processed(blob_path)
+        return inserted
+
+    def run_alerts(self, lookback_minutes: int = None) -> int:
+
+        recent_paths = self.list_recent_alert_blobs(lookback_minutes)
+        new_paths = self.file_tracking_service.filter_new_files(recent_paths)
+
+        logger.info(
+            "Alertes : %d blob(s) dans la fenêtre, %d déjà traité(s), %d à lire.",
+            len(recent_paths), len(recent_paths) - len(new_paths), len(new_paths),
+        )
+
+        if not new_paths:
+            return 0
+
+        inserted = 0
+        try:
+            for blob_path in new_paths:
+                try:
+                    with self.db.begin_nested():
+                        inserted += self.stage_alert_blob(blob_path)
+                except Exception as e:
+                    logger.error(f"[{blob_path}] Blob en échec, sauté : {e}")
+                    continue
+
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Erreur lors de l'insertion des alertes : {e}")
+            return 0
+
+        logger.info("Alertes : %d nouvelle(s) insérée(s).", inserted)
+        return inserted
+
     def run(self, lookback_minutes: int = None) -> None:
         recent_paths = self.list_recent_blob_paths(lookback_minutes)
 
@@ -273,6 +346,14 @@ class ETLService:
                 self.run()
             except Exception as e:
                 logger.error(f"Erreur critique dans le cycle ETL : {e}")
+
+            # try séparé : un échec côté alertes ne doit pas priver les mesures
+            # du cycle suivant, et réciproquement.
+            try:
+                self.run_alerts()
+            except Exception as e:
+                logger.error(f"Erreur critique dans le cycle des alertes : {e}")
+                self.db.rollback()
                 self.db.rollback()
 
             time.sleep(interval)

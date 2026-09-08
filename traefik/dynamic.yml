@@ -16,18 +16,13 @@ http:
       service: frontend
       tls: {}
 
-    backend:
-      rule: "Host(`localhost`) && (PathPrefix(`/api`) || PathPrefix(`/docs`) || PathPrefix(`/openapi.json`))"
+    # /health est servi par core lui-même (backend/core/api/controller/health.py),
+    # pas par un service Traefik séparé.
+    core:
+      rule: "Host(`localhost`) && (PathPrefix(`/api`) || PathPrefix(`/docs`) || PathPrefix(`/openapi.json`) || PathPrefix(`/health`))"
       entryPoints:
         - websecure
-      service: backend
-      tls: {}
-
-    health:
-      rule: "Host(`localhost`) && PathPrefix(`/health`)"
-      entryPoints:
-        - websecure
-      service: health
+      service: core
       tls: {}
 
   services:
@@ -36,12 +31,7 @@ http:
         servers:
           - url: "http://frontend:8501"
 
-    backend:
+    core:
       loadBalancer:
         servers:
-          - url: "http://backend:8000"
-
-    health:
-      loadBalancer:
-        servers:
-          - url: "http://health:8000"
+          - url: "http://core:8000"

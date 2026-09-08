@@ -1,25 +1,36 @@
 from datetime import datetime
 from unittest.mock import Mock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
-from core.api.schemas import AlertRead, MeasurementRead, SiteRead
+from core.api.schemas import (
+    AlertRead,
+    MeasurementRead,
+    SiteRead,
+    SiteWithCurrentRead,
+)
 from core.api.service.measurement_service import (
     MeasurementNotFoundError,
     SiteNotFoundError,
 )
+from core.security import AuthenticatedUser, get_current_user
 from shared.database import get_db
 from core.main import app
 
 client = TestClient(app)
+
+_TEST_USER_ID = "7e57c0de-0000-4000-8000-000000000001"
 
 
 @pytest.fixture(autouse=True)
 def _override_get_db():
     """Neutralise la vraie session DB : les services sont mockés dans chaque tests."""
     app.dependency_overrides[get_db] = lambda: None
+    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(
+        sub=_TEST_USER_ID, username="test"
+    )
     yield
     app.dependency_overrides.clear()
 
@@ -47,6 +58,13 @@ def measurement_service(monkeypatch):
     return fake
 
 
+@pytest.fixture
+def me_service(monkeypatch):
+    fake = Mock()
+    monkeypatch.setattr("core.api.controller.me.SiteService", lambda db: fake)
+    return fake
+
+
 def _site(site_id: str = "SITE001") -> SiteRead:
     return SiteRead(
         site_id=site_id,
@@ -55,6 +73,18 @@ def _site(site_id: str = "SITE001") -> SiteRead:
         location="Paris, France",
         capacity_kw=200.0,
         status="active",
+    )
+
+
+def _site_with_current(
+    site_id: str = "SITE001",
+    current_consumption_kw: float | None = 104.47,
+    data_quality: str | None = "good",
+) -> SiteWithCurrentRead:
+    return SiteWithCurrentRead(
+        **_site(site_id).model_dump(),
+        current_consumption_kw=current_consumption_kw,
+        data_quality=data_quality,
     )
 
 
@@ -76,12 +106,12 @@ def _measurement(site_id: str = "SITE001", date: datetime | None = None) -> Meas
     )
 
 
-# --- GET /api/v1/backend/sites --------------------------------------------
+# --- GET /api/v1/sites ---------------------------------------------------
 
 def test_list_sites_returns_200_with_all_sites(site_service):
     site_service.list_sites.return_value = [_site("SITE001"), _site("SITE002")]
 
-    response = client.get("/api/v1/backend/sites")
+    response = client.get("/api/v1/sites")
 
     assert response.status_code == 200
     body = response.json()
@@ -92,18 +122,18 @@ def test_list_sites_returns_200_with_all_sites(site_service):
 def test_list_sites_returns_empty_list(site_service):
     site_service.list_sites.return_value = []
 
-    response = client.get("/api/v1/backend/sites")
+    response = client.get("/api/v1/sites")
 
     assert response.status_code == 200
     assert response.json() == []
 
 
-# --- GET /api/v1/backend/sites/{site_id} --------------------------------
+# --- GET /api/v1/sites/{site_id} ---------------------------------------
 
 def test_get_site_returns_200_with_site(site_service):
     site_service.get_site.return_value = _site("SITE001")
 
-    response = client.get("/api/v1/backend/sites/SITE001")
+    response = client.get("/api/v1/sites/SITE001")
 
     assert response.status_code == 200
     body = response.json()
@@ -115,10 +145,48 @@ def test_get_site_returns_200_with_site(site_service):
 def test_get_site_returns_404_when_site_unknown(site_service):
     site_service.get_site.side_effect = SiteNotFoundError("SITE999")
 
-    response = client.get("/api/v1/backend/sites/SITE999")
+    response = client.get("/api/v1/sites/SITE999")
 
     assert response.status_code == 404
     assert "SITE999" in response.json()["detail"]
+
+
+# --- GET /api/v1/me/sites ----------------------------------------------
+
+def test_list_my_sites_returns_sites_with_current_consumption(me_service):
+    me_service.list_sites_for_user.return_value = [
+        _site_with_current("SITE001", current_consumption_kw=104.47, data_quality="good"),
+        _site_with_current("SITE003", current_consumption_kw=None, data_quality=None),
+    ]
+
+    response = client.get("/api/v1/me/sites")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [s["site_id"] for s in body] == ["SITE001", "SITE003"]
+    assert body[0]["current_consumption_kw"] == 104.47
+    assert body[0]["data_quality"] == "good"
+    assert body[1]["current_consumption_kw"] is None
+    me_service.list_sites_for_user.assert_called_once_with(
+        UUID(_TEST_USER_ID), True
+    )
+
+
+def test_list_my_sites_forwards_active_only_false(me_service):
+    me_service.list_sites_for_user.return_value = []
+
+    response = client.get("/api/v1/me/sites?active_only=false")
+
+    assert response.status_code == 200
+    me_service.list_sites_for_user.assert_called_once_with(UUID(_TEST_USER_ID), False)
+
+
+def test_list_my_sites_requires_authentication():
+    app.dependency_overrides.pop(get_current_user, None)
+
+    response = client.get("/api/v1/me/sites")
+
+    assert response.status_code == 401
 
 
 # --- GET /api/v1/backend/sites/{site_id}/measurements --------------------

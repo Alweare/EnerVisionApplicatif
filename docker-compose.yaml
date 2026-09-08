@@ -1,28 +1,8 @@
+# postgres/migration/mlflow vivent uniquement dans docker-compose-data.yaml
+# (source unique). Ce fichier dépend de ces services (`depends_on: postgres`)
+# mais ne les définit pas : toujours le combiner avec
+# `-f docker-compose-data.yaml` (voir docker.ps1), jamais seul.
 services:
-  backend:
-    build:
-      context: .
-      dockerfile: backend/core/Dockerfile
-    networks:
-      - enervision_network
-    env_file:
-      - .env
-
-    volumes:
-      - ./backend:/backend
-
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_APP_USER: ${POSTGRES_APP_USER}
-      POSTGRES_APP_PWD: ${POSTGRES_APP_PWD}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
-      KEYCLOAK_URL: ${KEYCLOAK_URL}
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
-      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
-    secrets:
-      - keycloak_client_secret
-
   # Keycloak "prod-style" (buildé, adossé à keycloak-db) : jamais démarré par
   # défaut (ni en local, ni par un `docker compose up -d` nu). Nécessite
   # `--profile prod` explicitement — évite la collision avec le Keycloak
@@ -32,7 +12,7 @@ services:
     profiles: ["prod"]
     build:
       context: .
-      dockerfile: backend/authentication/Dockerfile
+      dockerfile: authentication/Dockerfile
     networks:
       - enervision_network
     ports:
@@ -82,7 +62,7 @@ services:
     ports:
       - "8501:8501"
     environment:
-      BACKEND_URL: ${BACKEND_URL}
+      CORE_URL: ${CORE_URL}
     volumes:
       - ./frontend/.streamlit/secrets.toml:/frontend/.streamlit/secrets.toml:ro
 
@@ -170,52 +150,13 @@ services:
       postgres:
         condition: service_healthy
 
-  postgres:
-    networks:
-      - enervision_network
-    image: postgres:16-alpine
-    container_name: postgres
-    restart: always
-    volumes:
-      - postgresql_data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PWD}
-    ports:
-      - "127.0.0.1:5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-
-  migration:
-    networks:
-      - enervision_network
-    container_name: migration
-    build: db
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      PYWAY_TYPE: postgres
-      PYWAY_TABLE: public.pyway
-      PYWAY_DATABASE_USERNAME: ${POSTGRES_USER}
-      PYWAY_DATABASE_PASSWORD: ${POSTGRES_PWD}
-      PYWAY_DATABASE_HOST: postgres
-      PYWAY_DATABASE_PORT: 5432
-      PYWAY_DATABASE_NAME: ${POSTGRES_DB}
-      PYWAY_DATABASE_MIGRATION_DIR: migrations
-
 volumes:
-  postgresql_data:
   keycloak_db_data:
 
 networks:
   enervision_network:
     external: true
+    name: enervision_network
 
 secrets:
   keycloak_client_secret:
