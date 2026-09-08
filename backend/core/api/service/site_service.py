@@ -1,3 +1,4 @@
+from uuid import UUID
 from sqlalchemy.orm import Session
 
 from core.api.repository.site_repository import SiteRepository
@@ -14,6 +15,9 @@ class SiteService:
     def __init__(self, db: Session):
         self.db = db
         self.repository = SiteRepository(db)
+
+    def list_sites_for_user(self, user_id: UUID, active_only: bool = True) -> list[SiteRead]:
+        return self.repository.get_by_user(user_id, active_only)
 
     def list_sites(self) -> list[SiteRead]:
         return self.repository.get_all()
