@@ -21,7 +21,7 @@ if [[ -z "${IMAGE:-}" ]]; then
 fi
 
 case "$SERVICE" in
-    etl|core|workeringestion|frontend)
+    etl|core|workeringestion|frontend|prediction)
         ;;
     *)
         error "Service non autorisé : $SERVICE"
