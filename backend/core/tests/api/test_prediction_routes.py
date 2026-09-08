@@ -6,7 +6,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.api.schemas import (
-    ModelInfo,
     HistoryPoint,
     PredictionPoint,
     PredictionRead,
@@ -67,12 +66,6 @@ def _site_prediction(site_id: str = "SITE001") -> SitePredictionRead:
                 predicted_consumption_kw=145.0,
             ),
         ],
-        model=ModelInfo(
-            model_version="v0.1.0-seed",
-            algorithm="régression linéaire (scikit-learn)",
-            trained_at=datetime(2026, 8, 28, 9, 0, 0),
-            mae=8.42,
-        ),
         history=[_history_point(8), _history_point(9)],
     )
 
@@ -90,7 +83,7 @@ def test_get_site_predictions_returns_200_with_bundle(prediction_service):
     assert body["prediction"]["predicted_consumption_kw"] == 145.0
     assert body["prediction"]["predicted_for"] == "2026-09-08T18:00:00"
     assert [p["predicted_consumption_kw"] for p in body["points"]] == [120.0, 145.0]
-    assert body["model"]["algorithm"] == "régression linéaire (scikit-learn)"
+    assert body["prediction"]["model_version"] == "v0.1.0-seed"
     assert [h["measured_at"] for h in body["history"]] == [
         "2026-09-08T08:00:00",
         "2026-09-08T09:00:00",

@@ -61,17 +61,6 @@ class HistoryPoint(BaseModel):
     consumption_kw: float | None = Field(default=None, examples=[142.5])
 
 
-class ModelInfo(BaseModel):
-    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
-
-    model_version: str = Field(examples=["v0.1.0-seed"])
-    algorithm: str | None = Field(
-        default=None, examples=["régression linéaire (scikit-learn)"]
-    )
-    trained_at: datetime | None = Field(default=None, examples=["2026-08-28T09:00:00"])
-    mae: float | None = Field(default=None, examples=[8.42])
-
-
 class MeasurementRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -130,8 +119,8 @@ class AlertRead(BaseModel):
     created_at: datetime
 class SitePredictionRead(BaseModel):
     """Réponse de GET /sites/{site_id}/predictions : la série de projection
-    horaire à venir, le prochain pic prévu, le modèle qui l'a produite, et
-    l'historique récent agrégé à l'heure pour le tracé."""
+    horaire à venir, le prochain pic prévu, et l'historique récent agrégé à
+    l'heure pour le tracé."""
 
     model_config = ConfigDict(protected_namespaces=())
 
@@ -141,7 +130,6 @@ class SitePredictionRead(BaseModel):
         default_factory=list,
         description="Prédictions horaires à venir, triées par échéance croissante.",
     )
-    model: ModelInfo | None = None
     history: list[HistoryPoint] = Field(
         default_factory=list,
         description="Consommation moyenne par heure, triée par heure croissante.",

@@ -3,7 +3,6 @@ import pandas as pd
 import streamlit as st
 
 from formatting import (
-    format_date_fr,
     format_day_time,
     format_number,
     site_option_label,
@@ -14,7 +13,6 @@ from services.site_service import get_sites
 HISTORIQUE_COLOR = "#4c78a8"
 PROJECTION_COLOR = "#f58518"
 
-# Fenêtre d'historique affichée (déjà agrégée à l'heure côté API).
 HISTORY_HOURS = 24
 
 st.header("Prédictions")
@@ -43,7 +41,6 @@ def show_prediction(site_id: str) -> None:
 
     prediction = data["prediction"]
     points = data.get("points", [])
-    model = data.get("model")
     history = data.get("history", [])
 
     # --- Prochain pic prévu ------------------------------------------
@@ -60,6 +57,7 @@ def show_prediction(site_id: str) -> None:
     # --- Historique + projection horaire ---------------------------
     st.subheader("Historique + projection")
 
+    hist_df = None
     frames = []
     if history:
         hist_df = pd.DataFrame(history).rename(
@@ -74,10 +72,22 @@ def show_prediction(site_id: str) -> None:
         )
         proj_df["ts"] = pd.to_datetime(proj_df["ts"], format="ISO8601")
         proj_df["serie"] = "projection"
+        # Souder les deux courbes : la projection reprend au dernier point
+        # mesuré, sinon un « trou » d'une heure sépare le bleu de l'orange.
+        if hist_df is not None and not hist_df.empty:
+            bridge = hist_df.iloc[[-1]].assign(serie="projection")
+            proj_df = pd.concat([bridge[["ts", "kw", "serie"]], proj_df])
         frames.append(proj_df[["ts", "kw", "serie"]])
 
     if frames:
         df = pd.concat(frames, ignore_index=True).sort_values("ts")
+
+        # Une graduation par heure pile, listée explicitement : `tickCount`
+        # n'est qu'une indication et Vega finit par n'afficher qu'un label
+        # toutes les 6 h.
+        hour_ticks = pd.date_range(
+            df["ts"].min().floor("h"), df["ts"].max().ceil("h"), freq="h"
+        )
 
         try:
             chart = (
@@ -88,9 +98,11 @@ def show_prediction(site_id: str) -> None:
                         "ts:T",
                         title=None,
                         axis=alt.Axis(
-                            tickCount="hour",  # une graduation par heure
+                            values=list(hour_ticks),
                             format="%Hh",
-                            labelAngle=-45,
+                            labelAngle=-90,
+                            labelOverlap=False,
+                            labelPadding=4,
                         ),
                     ),
                     y=alt.Y("kw:Q", title="kW"),
@@ -102,23 +114,21 @@ def show_prediction(site_id: str) -> None:
                         ),
                         legend=alt.Legend(title=None, orient="top"),
                     ),
-                    tooltip=["ts:T", "kw:Q", "serie:N"],
+                    tooltip=[
+                        alt.Tooltip("ts:T", title="Date", format="%d/%m/%Y"),
+                        alt.Tooltip("ts:T", title="Heure", format="%H:%M"),
+                        alt.Tooltip("kw:Q", title="kW", format=".1f"),
+                        alt.Tooltip("serie:N", title="Série"),
+                    ],
                 )
                 .properties(height=340)
             )
             st.altair_chart(chart, use_container_width=True)
-        except Exception:  # noqa: BLE001 - repli si le rendu Altair échoue
+        except Exception:
             wide = df.pivot_table(index="ts", columns="serie", values="kw")
             st.line_chart(wide, color=[HISTORIQUE_COLOR, PROJECTION_COLOR])
     else:
         st.info("Pas de données à tracer.")
-
-    # --- Modèle ----------------------------------------------------
-    if model:
-        st.caption(
-            f"Modèle entraîné le {format_date_fr(model.get('trained_at'))} — "
-            f"{model.get('algorithm') or '—'}"
-        )
 
 
 show_prediction(selected_site_id)

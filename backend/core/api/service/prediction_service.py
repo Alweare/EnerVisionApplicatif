@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 
 from core.api.repository.measurement_repository import MeasurementRepository
-from core.api.repository.model_repository import ModelRepository
 from core.api.repository.prediction_repository import PredictionRepository
 from core.api.repository.site_repository import SiteRepository
 from core.api.schemas import SitePredictionRead
@@ -29,7 +28,6 @@ class PredictionService:
         self.repository = PredictionRepository(db)
         self.site_repository = SiteRepository(db)
         self.measurement_repository = MeasurementRepository(db)
-        self.model_repository = ModelRepository(db)
 
     def get_prediction(
         self, site_id: str, history_hours: int = DEFAULT_HISTORY_HOURS
@@ -56,14 +54,9 @@ class PredictionService:
 
         peak = max(projection, key=_consumption)
 
-        model = None
-        if peak.model_version is not None:
-            model = self.model_repository.get_by_version(peak.model_version)
-
         return SitePredictionRead(
             site_id=site_id,
             prediction=peak,
             points=projection,
-            model=model,
             history=history,
         )

@@ -5,7 +5,6 @@ from uuid import uuid4
 import pytest
 
 from core.api.schemas import (
-    ModelInfo,
     HistoryPoint,
     PredictionRead,
     SitePredictionRead,
@@ -23,7 +22,6 @@ def prediction_service():
     service.repository = Mock()
     service.site_repository = Mock()
     service.measurement_repository = Mock()
-    service.model_repository = Mock()
     return service
 
 
@@ -46,15 +44,6 @@ def _history_point(hour: int, consumption_kw: float = 100.0) -> HistoryPoint:
     return HistoryPoint(
         measured_at=datetime(2026, 9, 8, hour, 0, 0),
         consumption_kw=consumption_kw,
-    )
-
-
-def _model():
-    return ModelInfo(
-        model_version="v0.1.0-seed",
-        algorithm="régression linéaire (scikit-learn)",
-        trained_at=datetime(2026, 8, 28, 9, 0, 0),
-        mae=8.42,
     )
 
 
@@ -89,7 +78,6 @@ def test_get_prediction_returns_hourly_series_and_peak(prediction_service):
     history = [_history_point(9), _history_point(10)]
     prediction_service.site_repository.exists.return_value = True
     prediction_service.repository.list_projection_by_site.return_value = projection
-    prediction_service.model_repository.get_by_version.return_value = _model()
     prediction_service.measurement_repository.list_hourly_by_site.return_value = history
 
     result = prediction_service.get_prediction("SITE001", history_hours=12)
@@ -97,26 +85,11 @@ def test_get_prediction_returns_hourly_series_and_peak(prediction_service):
     assert isinstance(result, SitePredictionRead)
     assert [p.predicted_consumption_kw for p in result.points] == [120.0, 190.0, 90.0]
     assert result.prediction.predicted_consumption_kw == 190.0
+    assert result.prediction.model_version == "v0.1.0-seed"
     assert result.history == history
-    prediction_service.model_repository.get_by_version.assert_called_once_with(
-        "v0.1.0-seed"
-    )
     prediction_service.measurement_repository.list_hourly_by_site.assert_called_once_with(
         "SITE001", hours=12
     )
-
-
-def test_get_prediction_tolerates_missing_model(prediction_service):
-    prediction_service.site_repository.exists.return_value = True
-    prediction_service.repository.list_projection_by_site.return_value = [
-        _prediction(model_version=None)
-    ]
-    prediction_service.measurement_repository.list_hourly_by_site.return_value = []
-
-    result = prediction_service.get_prediction("SITE001")
-
-    assert result.model is None
-    prediction_service.model_repository.get_by_version.assert_not_called()
 
 
 def test_get_prediction_drops_points_before_last_history_hour(prediction_service):
@@ -127,7 +100,6 @@ def test_get_prediction_drops_points_before_last_history_hour(prediction_service
     ]
     prediction_service.site_repository.exists.return_value = True
     prediction_service.repository.list_projection_by_site.return_value = projection
-    prediction_service.model_repository.get_by_version.return_value = None
     prediction_service.measurement_repository.list_hourly_by_site.return_value = [
         _history_point(11)
     ]
@@ -147,7 +119,6 @@ def test_get_prediction_keeps_full_series_when_all_points_already_measured(
     ]
     prediction_service.site_repository.exists.return_value = True
     prediction_service.repository.list_projection_by_site.return_value = projection
-    prediction_service.model_repository.get_by_version.return_value = None
     prediction_service.measurement_repository.list_hourly_by_site.return_value = [
         _history_point(23)
     ]
