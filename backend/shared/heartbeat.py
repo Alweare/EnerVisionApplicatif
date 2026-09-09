@@ -15,7 +15,7 @@ import pathlib
 import time
 
 
-CHEMIN = pathlib.Path(os.environ["HEARTBEAT_FILE"])
+CHEMIN = pathlib.Path(os.environ.get("HEARTBEAT_FILE", "/tmp/heartbeat"))
 
 
 def touch() -> None:
