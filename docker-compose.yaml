@@ -77,6 +77,8 @@ services:
       AZURE_STORAGE_ACCOUNT: ${AZURE_STORAGE_ACCOUNT}
       AZURE_STORAGE_CONTAINER_NAME: ${AZURE_STORAGE_CONTAINER_NAME}
       AZURE_SAS_INGESTION: ${AZURE_SAS_INGESTION}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      HEARTBEAT_FILE: ${HEARTBEAT_FILE:-/tmp/heartbeat}
 
   core:
     networks:
@@ -96,6 +98,7 @@ services:
       KEYCLOAK_URL: ${KEYCLOAK_URL}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
     volumes:
       - ./backend/core:/backend/core
@@ -122,6 +125,8 @@ services:
       ETL_INTERVAL_SECONDS: ${ETL_INTERVAL_SECONDS:-60}
       ETL_LOOKBACK_MINUTES: ${ETL_LOOKBACK_MINUTES:-1440}
       ETL_FORWARD_FILL_DEPTH: ${ETL_FORWARD_FILL_DEPTH:-3}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      HEARTBEAT_FILE: ${HEARTBEAT_FILE:-/tmp/heartbeat}
 
     volumes:
       - ./backend/etl:/backend/etl

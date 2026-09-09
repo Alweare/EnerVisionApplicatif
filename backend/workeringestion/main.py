@@ -1,10 +1,11 @@
 import asyncio
 import logging
 
+from shared.logging_setup import setup_logging
 from workeringestion.api import blob_storage, mock_api
 from workeringestion.services.poller import poll_loop
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+setup_logging("worker-ingestion")
 
 
 async def main() -> None:
