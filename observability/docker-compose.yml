@@ -29,10 +29,44 @@ services:
 
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
 
     networks:
       - observability
       - traefik_network
+
+  loki:
+    image: grafana/loki:3.5.9
+    container_name: loki
+    restart: unless-stopped
+
+    command: ["-config.file=/etc/loki/loki.yml"]
+
+    volumes:
+      - ./loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+
+    networks:
+      - observability
+
+  promtail:
+    image: grafana/promtail:3.5.9
+    container_name: promtail
+    restart: unless-stopped
+
+    depends_on:
+      - loki
+
+    command: ["-config.file=/etc/promtail/promtail.yml"]
+
+    volumes:
+      - ./promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail_positions:/tmp
+
+    networks:
+      - observability
 
 
   node-exporter:
@@ -70,6 +104,8 @@ services:
 volumes:
   prometheus_data:
   grafana_data:
+  loki_data:
+  promtail_positions:
 
 
 networks:

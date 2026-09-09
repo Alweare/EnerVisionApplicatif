@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
+from shared import heartbeat
 from etl.models.site import Site
 from etl.models.measurement import Measurement
 from etl.service.alert_service import AlertService
@@ -100,6 +101,8 @@ class ETLService:
         logger.info(
             "%d fichier(s) déposé(s) depuis %s minute(s) sur Azure.",
             len(recent), minutes,
+            extra={"event": "etl.blobs_listes", "blobs": len(recent),
+                   "lookback_minutes": minutes},
         )
         return [blob.name for blob in recent]
 
@@ -248,6 +251,8 @@ class ETLService:
         logger.info(
             "Lot validé : %d fichier(s) tracé(s), %d mesure(s) insérée(s).",
             staged_files, staged_measurements,
+            extra={"event": "etl.lot_valide", "fichiers": staged_files,
+                   "mesures": staged_measurements},
         )
         return True
 
@@ -297,6 +302,9 @@ class ETLService:
         logger.info(
             "Alertes : %d blob(s) dans la fenêtre, %d déjà traité(s), %d à lire.",
             len(recent_paths), len(recent_paths) - len(new_paths), len(new_paths),
+            extra={"event": "etl.alertes_a_lire", "blobs": len(recent_paths),
+                   "deja_traites": len(recent_paths) - len(new_paths),
+                   "a_lire": len(new_paths)},
         )
 
         if not new_paths:
@@ -342,18 +350,39 @@ class ETLService:
     def start_continuous_run(self, interval: int = 60) -> None:
         logger.info("Démarrage du service ETL")
         while True:
+            debut = time.perf_counter()
+            mesures_ok = alertes_ok = True
+
             try:
                 self.run()
             except Exception as e:
-                logger.error(f"Erreur critique dans le cycle ETL : {e}")
+                mesures_ok = False
+                logger.error(
+                    f"Erreur critique dans le cycle ETL : {e}",
+                    extra={"event": "etl.cycle_echec", "phase": "mesures"},
+                )
 
             # try séparé : un échec côté alertes ne doit pas priver les mesures
             # du cycle suivant, et réciproquement.
             try:
                 self.run_alerts()
             except Exception as e:
-                logger.error(f"Erreur critique dans le cycle des alertes : {e}")
+                alertes_ok = False
+                logger.error(
+                    f"Erreur critique dans le cycle des alertes : {e}",
+                    extra={"event": "etl.cycle_echec", "phase": "alertes"},
+                )
                 self.db.rollback()
-                self.db.rollback()
+
+            heartbeat.touch()
+            logger.info(
+                "Cycle ETL terminé",
+                extra={
+                    "event": "etl.heartbeat",
+                    "mesures_ok": mesures_ok,
+                    "alertes_ok": alertes_ok,
+                    "duration_ms": round((time.perf_counter() - debut) * 1000, 1),
+                },
+            )
 
             time.sleep(interval)

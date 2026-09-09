@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import os
+import time
 
+from shared import heartbeat
 from workeringestion.api import blob_storage, mock_api
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,8 @@ async def poll_once(site_id: str) -> None:
         site_id,
         data_quality,
         blob_name,
+        extra={"event": "worker.lecture_archivee", "site_id": site_id,
+               "data_quality": data_quality, "blob": blob_name},
     )
 
 
@@ -35,7 +39,11 @@ async def poll_alerts_once() -> None:
     blob_name = await blob_storage.archive_alerts_raw(response.text)
 
     alerts = response.json()
-    logger.info("%d alerte(s) archivée(s) -> %s", len(alerts), blob_name)
+    logger.info(
+        "%d alerte(s) archivée(s) -> %s", len(alerts), blob_name,
+        extra={"event": "worker.alertes_archivees", "alertes": len(alerts),
+               "blob": blob_name},
+    )
 
 
 async def poll_all_sites() -> None:
@@ -49,14 +57,38 @@ async def poll_all_sites() -> None:
 
 async def poll_loop() -> None:
     while True:
+        debut = time.perf_counter()
+        mesures_ok = alertes_ok = True
+
         try:
             await poll_all_sites()
         except Exception:
-            logger.exception("Erreur pendant le cycle de polling")
+            mesures_ok = False
+            logger.exception(
+                "Erreur pendant le cycle de polling",
+                extra={"event": "worker.cycle_echec", "phase": "mesures"},
+            )
 
         try:
             await poll_alerts_once()
         except Exception:
-            logger.exception("Erreur pendant le polling des alertes")
+            alertes_ok = False
+            logger.exception(
+                "Erreur pendant le polling des alertes",
+                extra={"event": "worker.cycle_echec", "phase": "alertes"},
+            )
+
+        # Battement de cœur : voir le commentaire équivalent côté ETL. Un
+        # fichier pour le healthcheck Docker, un log pour l'alerte Grafana.
+        heartbeat.touch()
+        logger.info(
+            "Cycle de polling terminé",
+            extra={
+                "event": "worker.heartbeat",
+                "mesures_ok": mesures_ok,
+                "alertes_ok": alertes_ok,
+                "duration_ms": round((time.perf_counter() - debut) * 1000, 1),
+            },
+        )
 
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
