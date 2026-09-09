@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -15,7 +17,6 @@ router = APIRouter(prefix="/api/v1/backend/sites", tags=["Predictions"])
 
 @router.get(
     "/{site_id}/predictions",
-    response_model=SitePredictionRead,
     summary="Prédiction de consommation d'un site",
     description=(
         "Retourne la projection horaire à venir, le prochain pic prévu, le "
@@ -36,8 +37,8 @@ router = APIRouter(prefix="/api/v1/backend/sites", tags=["Predictions"])
 )
 def get_site_predictions(
     site_id: str,
-    history_hours: int = Query(default=24, ge=1, le=168),
-    db: Session = Depends(get_db),
+    db: Annotated[Session, Depends(get_db)],
+    history_hours: Annotated[int, Query(ge=1, le=168)] = 24,
 ) -> SitePredictionRead:
     service = PredictionService(db)
     try:
