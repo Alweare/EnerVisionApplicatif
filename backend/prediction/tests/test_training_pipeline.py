@@ -5,14 +5,20 @@ import pytest
 from mlflow.tracking import MlflowClient
 
 from prediction.config import PredictionSettings
+from prediction.dataset.dataset import DRIFT_FEATURE_COLUMNS, MAX_HORIZON_HOURS
 from prediction.registry.model_registry import get_model_version_by_alias
-from prediction.training.pipeline import run_training_pipeline
+from prediction.training.pipeline import _decide_promotion, run_training_pipeline
 
 START = datetime(2026, 1, 1)
 MODEL_NAME = "consumption-predictor"
 
+# Le modèle multi-horizon exige lag_168h/target_h168 (10080 lignes avant ET
+# après une ligne pour qu'elle soit exploitable) : il faut donc nettement plus
+# de 7+7 jours d'historique synthétique qu'avec l'ancien modèle T+1h seul.
+N_ROWS = 25_000  # ~17.4 jours à 1 mesure/minute
 
-def _linear_raw_frame(n: int = 3000) -> pd.DataFrame:
+
+def _linear_raw_frame(n: int = N_ROWS) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "site_id": "SITE_A",
@@ -51,8 +57,21 @@ def test_first_candidate_becomes_champion_when_it_beats_baseline(mlflow_tracking
 
     assert result.promoted is True
     assert result.champion_mae is None
+    assert result.champion_mae_by_key_horizon is None
     assert result.champion_unavailable is False
     assert result.mae < result.baseline_mae
+
+    # Évaluation par horizon (§7 du besoin) : la MAE ne doit jamais être
+    # masquée par une seule valeur globale. Sur une série parfaitement
+    # linéaire, la régression est quasi parfaite à chaque horizon (très en
+    # dessous de la baseline), qui elle se dégrade nettement avec l'horizon.
+    assert result.mae_h1 < 1.0
+    assert result.mae_h24 < 1.0
+    assert result.mae_h168 < 1.0
+    assert result.baseline_mae_h1 < result.baseline_mae_h24 < result.baseline_mae_h168
+    assert len(result.mae_by_horizon) == MAX_HORIZON_HOURS
+    assert len(result.baseline_mae_by_horizon) == MAX_HORIZON_HOURS
+    assert result.mae_mean < 1.0
 
     client = MlflowClient()
     champion = client.get_model_version_by_alias(MODEL_NAME, "champion")
@@ -132,7 +151,12 @@ def test_drift_is_none_on_first_run_and_computed_on_second_run(mlflow_tracking_u
 
     second = run_training_pipeline(settings=settings)
     assert second.drift_result is not None
-    assert set(second.drift_result.feature_scores.keys()) <= {"lag_1h", "lag_24h", "rolling_mean_24h"}
+    assert set(second.drift_result.feature_scores.keys()) <= set(DRIFT_FEATURE_COLUMNS)
+    # Les features calendaires (hour_of_day, day_of_week, is_weekend) ne
+    # participent jamais au calcul de drift (§13 du besoin).
+    assert "hour_of_day" not in second.drift_result.feature_scores
+    assert "day_of_week" not in second.drift_result.feature_scores
+    assert "is_weekend" not in second.drift_result.feature_scores
 
 
 def test_broken_champion_does_not_block_training_and_is_recovered(mlflow_tracking_uri, tmp_path):
@@ -183,7 +207,77 @@ def test_logged_run_has_expected_params_and_metrics(mlflow_tracking_uri):
     assert "n_validation_rows" in run.data.params
     assert "n_test_rows" in run.data.params
     assert "dataset_max_date" in run.data.params
+    assert run.data.params["horizons_hours"] == f"1-{MAX_HORIZON_HOURS}"
     assert run.data.metrics["mae"] == pytest.approx(result.mae)
     assert run.data.metrics["baseline_mae"] == pytest.approx(result.baseline_mae)
     assert run.data.tags["trigger_source"] == "cli_train_if_needed"
     assert run.data.tags["retrain_reasons"] == "no_existing_champion"
+
+    # Horizons clés (§7/§10 du besoin) : lisibles comme métriques MLflow
+    # scalaires, jamais 168 métriques séparées.
+    assert run.data.metrics["mae_h1"] == pytest.approx(result.mae_h1)
+    assert run.data.metrics["mae_h24"] == pytest.approx(result.mae_h24)
+    assert run.data.metrics["mae_h168"] == pytest.approx(result.mae_h168)
+    assert run.data.metrics["baseline_mae_h1"] == pytest.approx(result.baseline_mae_h1)
+    assert run.data.metrics["baseline_mae_h24"] == pytest.approx(result.baseline_mae_h24)
+    assert run.data.metrics["baseline_mae_h168"] == pytest.approx(result.baseline_mae_h168)
+    assert run.data.metrics["mae_mean"] == pytest.approx(result.mae_mean)
+
+    # Détail des 168 horizons : artefact JSON, pas 168 métriques MLflow.
+    artifacts = [artifact.path for artifact in client.list_artifacts(result.run_id)]
+    assert "mae_by_horizon.json" in artifacts
+
+
+# --- Règle de promotion multi-horizon (§9 du besoin), en isolation ---------
+
+
+def test_decide_promotion_rejects_candidate_worse_than_baseline_at_long_horizon_even_if_great_at_h1():
+    """
+    Un candidat excellent à T+1h/T+24h mais moins bon que la baseline à T+168h
+    ne doit jamais être promu -- même s'il n'y a pas encore de champion.
+    """
+    settings = _settings(mlflow_tracking_uri="")
+
+    promoted, reason = _decide_promotion(
+        settings=settings,
+        has_champion=False,
+        champion_unavailable=False,
+        mae_by_key_horizon={1: 0.1, 24: 0.2, 168: 150.0},
+        baseline_mae_by_key_horizon={1: 1.0, 24: 1.0, 168: 100.0},
+        champion_mae_by_key_horizon=None,
+    )
+
+    assert promoted is False
+    assert "168" in reason
+
+
+def test_decide_promotion_promotes_when_candidate_beats_baseline_at_every_key_horizon():
+    settings = _settings(mlflow_tracking_uri="")
+
+    promoted, reason = _decide_promotion(
+        settings=settings,
+        has_champion=False,
+        champion_unavailable=False,
+        mae_by_key_horizon={1: 0.1, 24: 0.1, 168: 0.1},
+        baseline_mae_by_key_horizon={1: 1.0, 24: 1.0, 168: 1.0},
+        champion_mae_by_key_horizon=None,
+    )
+
+    assert promoted is True
+
+
+def test_decide_promotion_rejects_when_candidate_does_not_beat_champion_at_h168_only():
+    settings = _settings(mlflow_tracking_uri="")
+
+    promoted, reason = _decide_promotion(
+        settings=settings,
+        has_champion=True,
+        champion_unavailable=False,
+        mae_by_key_horizon={1: 0.05, 24: 0.05, 168: 50.0},
+        baseline_mae_by_key_horizon={1: 1.0, 24: 1.0, 168: 100.0},
+        champion_mae_by_key_horizon={1: 1.0, 24: 1.0, 168: 50.1},
+    )
+
+    assert promoted is False
+    assert "champion" in reason
+    assert "168" in reason

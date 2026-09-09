@@ -13,7 +13,12 @@ NO_DRIFT = DriftResult(feature_scores={"lag_1h": 0.01}, drifted_features=[], thr
 DRIFT = DriftResult(feature_scores={"lag_1h": 0.9}, drifted_features=["lag_1h"], threshold=0.2, drift_detected=True)
 
 
-def _linear_raw_frame(n: int = 3000, start: datetime = START) -> pd.DataFrame:
+# Le modèle multi-horizon exige lag_168h/target_h168 (10080 lignes avant ET
+# après une ligne pour qu'elle soit exploitable) : cf. test_training_pipeline.py.
+N_ROWS = 25_000
+
+
+def _linear_raw_frame(n: int = N_ROWS, start: datetime = START) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "site_id": "SITE_A",
@@ -85,14 +90,14 @@ def test_skips_when_nothing_changed_since_champion(mlflow_tracking_uri, monkeypa
 
 
 def test_retrains_when_enough_new_rows_accumulated(mlflow_tracking_uri, monkeypatch):
-    _patch_measurements(monkeypatch, _linear_raw_frame(n=2000))
+    _patch_measurements(monkeypatch, _linear_raw_frame(n=N_ROWS))
     _patch_no_ground_truth(monkeypatch)
     settings = _settings(mlflow_tracking_uri, min_new_rows=100)
 
     first_decision, first_result = train_if_needed(settings=settings)
     assert first_result is not None
 
-    _patch_measurements(monkeypatch, _linear_raw_frame(n=2500))
+    _patch_measurements(monkeypatch, _linear_raw_frame(n=N_ROWS + 2000))
     _patch_drift(monkeypatch, NO_DRIFT)
     second_decision, second_result = train_if_needed(settings=settings)
 
