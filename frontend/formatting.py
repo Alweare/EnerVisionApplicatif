@@ -15,7 +15,6 @@ DATA_QUALITY_LABELS = {
     "critical": "Données critiques",
 }
 
-# Ton du badge de qualité (couleurs `st.badge`).
 DATA_QUALITY_COLORS = {
     "good": "green",
     "partial": "orange",
@@ -23,33 +22,66 @@ DATA_QUALITY_COLORS = {
     "critical": "red",
 }
 
+ALERT_SEVERITY_LABELS = {
+    "low": "Faible",
+    "medium": "Moyenne",
+    "warning": "Avertissement",
+    "high": "Élevée",
+    "critical": "Critique",
+}
+
+ALERT_SEVERITY_COLORS = {
+    "low": "blue",
+    "medium": "orange",
+    "warning": "orange",
+    "high": "red",
+    "critical": "red",
+}
+
+ALERT_SEVERITY_ORDER = ["low", "medium", "warning", "high", "critical"]
+
+ALERT_TYPE_ORDER = ["spike", "threshold", "anomaly", "outage", "sensor", "consumption"]
+
+ALERT_TYPE_COLORS = {
+    "spike": "#2a78d6",        # bleu
+    "threshold": "#eb6834",    # orange
+    "anomaly": "#1baf7a",      # turquoise
+    "outage": "#eda100",       # jaune
+    "sensor": "#e87ba4",       # magenta
+    "consumption": "#008300",  # vert
+}
+
+ALERT_TYPE_LABELS = {
+    "spike": "Pic de consommation",
+    "threshold": "Seuil dépassé",
+    "anomaly": "Anomalie",
+    "outage": "Coupure",
+    "sensor": "Défaillance capteur",
+    "consumption": "Consommation",
+}
+
 
 def site_type_label(site_type: str | None) -> str:
-    """Libellé français du type de site (ex. `office` -> `Bureau`)."""
     if not site_type:
         return "Inconnu"
     return SITE_TYPE_LABELS.get(site_type, site_type.capitalize())
 
 
 def data_quality_label(data_quality: str | None) -> str:
-    """Libellé français de la qualité des données (ex. `good` -> `Données fiables`)."""
     if not data_quality:
         return "Qualité inconnue"
     return DATA_QUALITY_LABELS.get(data_quality, data_quality.capitalize())
 
 
 def data_quality_color(data_quality: str | None) -> str:
-    """Couleur du badge de qualité pour `st.badge` (`green`, `orange`, `red`, `gray`)."""
     return DATA_QUALITY_COLORS.get(data_quality, "gray")
 
 
 def is_data_reliable(data_quality: str | None) -> bool:
-    """`True` si la mesure est considérée comme fiable."""
     return data_quality == "good"
 
 
 def format_number(value: float | None, unit: str = "", decimals: int = 1) -> str:
-    """Formate un nombre à la française (virgule décimale), avec unité optionnelle."""
     if value is None:
         return "—"
     formatted = f"{value:.{decimals}f}".replace(".", ",")
@@ -57,21 +89,18 @@ def format_number(value: float | None, unit: str = "", decimals: int = 1) -> str
 
 
 def format_power_factor(value: float | None) -> str:
-    """Formate le facteur de puissance (ratio sans unité, ex. `0.92`)."""
     if value is None:
         return "—"
     return f"{value:.2f}"
 
 
 def site_option_label(site: dict) -> str:
-    """Libellé d'une option du sélecteur de site : `Nom — Localisation`."""
     name = site.get("site_name") or site.get("site_id") or "Site"
     location = site.get("location")
     return f"{name} — {location}" if location else name
 
 
 def relative_time(moment: str | datetime | None, *, now: datetime | None = None) -> str:
-    """Ancienneté d'une date au format « Il y a … » (français)."""
     if moment is None:
         return "Date inconnue"
     if isinstance(moment, str):
@@ -103,3 +132,51 @@ def relative_time(moment: str | datetime | None, *, now: datetime | None = None)
     if days == 1:
         return "Il y a un jour"
     return f"Il y a {days} jours"
+
+
+def alert_severity_label(severity: str | None) -> str:
+    if not severity:
+        return "Gravité inconnue"
+    return ALERT_SEVERITY_LABELS.get(severity, severity.capitalize())
+
+
+def alert_severity_color(severity: str | None) -> str:
+    return ALERT_SEVERITY_COLORS.get(severity, "gray")
+
+
+def alert_type_label(alert_type: str | None) -> str:
+    if not alert_type:
+        return "Type inconnu"
+    return ALERT_TYPE_LABELS.get(alert_type, alert_type.capitalize())
+
+
+def sort_alerts(alerts: list[dict]) -> list[dict]:
+
+    return sorted(alerts, key=lambda alert: alert.get("created_at") or "", reverse=True)
+
+
+def alert_counts_by_site_and_type(
+    alerts: list[dict], site_labels: dict[str, str]
+) -> list[dict]:
+
+    counts: dict[tuple[str, str], int] = {}
+    for alert in alerts:
+        site_id = alert.get("site_id")
+        alert_type = alert.get("type")
+        if site_id in site_labels and alert_type in ALERT_TYPE_ORDER:
+            counts[(site_id, alert_type)] = counts.get((site_id, alert_type), 0) + 1
+
+    return [
+        {
+            "site": site_labels[site_id],
+            "type": alert_type_label(alert_type),
+            "nombre": counts.get((site_id, alert_type), 0),
+        }
+        for site_id in site_labels
+        for alert_type in ALERT_TYPE_ORDER
+    ]
+
+def alert_type_palette() -> tuple[list[str], list[str]]:
+    labels = [alert_type_label(t) for t in ALERT_TYPE_ORDER]
+    colors = [ALERT_TYPE_COLORS[t] for t in ALERT_TYPE_ORDER]
+    return labels, colors

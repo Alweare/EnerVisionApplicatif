@@ -10,6 +10,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 
+from core.api.controller.alert import router as alert_router
 from core.api.controller.health import router as health_router
 from core.api.controller.me import router as me_router
 from core.api.controller.measurement import router as measurement_router
@@ -40,6 +41,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(site_router)
 app.include_router(measurement_router)
+app.include_router(alert_router)
 app.include_router(auth_router)
 app.include_router(me_router)
 
