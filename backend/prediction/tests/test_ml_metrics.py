@@ -11,7 +11,10 @@ START = datetime(2026, 1, 1)
 MODEL_NAME = "consumption-predictor"
 
 
-def _linear_raw_frame(n: int = 3000) -> pd.DataFrame:
+N_ROWS = 25_000  # cf. test_training_pipeline.py : historique nécessaire au multi-horizon
+
+
+def _linear_raw_frame(n: int = N_ROWS) -> pd.DataFrame:
     return pd.DataFrame(
         {
             "site_id": "SITE_A",
@@ -94,4 +97,33 @@ def test_refresh_ml_metrics_reflects_champion_and_training_state(monkeypatch, ml
             model_name=MODEL_NAME, alias="champion", version=result.model_version
         )._value.get()
         == 1
+    )
+
+    # Horizons clés (§14 du besoin) : la dégradation de la MAE avec l'horizon
+    # doit être visible dans Prometheus, pas seulement dans MLflow.
+    assert ml_metrics.ML_MAE_H24._value.get() == pytest.approx(result.mae_h24)
+    assert ml_metrics.ML_MAE_H168._value.get() == pytest.approx(result.mae_h168)
+    assert ml_metrics.ML_BASELINE_MAE_H24._value.get() == pytest.approx(result.baseline_mae_h24)
+    assert ml_metrics.ML_BASELINE_MAE_H168._value.get() == pytest.approx(result.baseline_mae_h168)
+
+
+def test_observe_forecast_success_increments_metrics_and_points_counter():
+    before_requests = _counter_value(ml_metrics.FORECAST_REQUESTS_TOTAL, result="success")
+    before_points = ml_metrics.FORECAST_POINTS_GENERATED_TOTAL._value.get()
+
+    ml_metrics.observe_forecast_success(0.2, n_points=24)
+
+    assert _counter_value(ml_metrics.FORECAST_REQUESTS_TOTAL, result="success") == before_requests + 1
+    assert ml_metrics.FORECAST_POINTS_GENERATED_TOTAL._value.get() == before_points + 24
+
+
+def test_observe_forecast_error_increments_metrics_with_reason():
+    before_requests = _counter_value(ml_metrics.FORECAST_REQUESTS_TOTAL, result="error")
+    before_errors = _counter_value(ml_metrics.FORECAST_ERRORS_TOTAL, reason="no_champion_model")
+
+    ml_metrics.observe_forecast_error("no_champion_model", 0.02)
+
+    assert _counter_value(ml_metrics.FORECAST_REQUESTS_TOTAL, result="error") == before_requests + 1
+    assert (
+        _counter_value(ml_metrics.FORECAST_ERRORS_TOTAL, reason="no_champion_model") == before_errors + 1
     )

@@ -24,6 +24,22 @@ ML_LAST_PREDICTION_TIMESTAMP = Gauge(
     "ml_last_prediction_timestamp", "Timestamp Unix de la dernière prédiction servie"
 )
 
+# Forecast multi-horizon (§14 du besoin) : mêmes principes que les métriques
+# prediction_* ci-dessus (pas de label site_id/timestamp/run_id -- cardinalité
+# maîtrisée), déclarées séparément pour distinguer /prediction de /forecast.
+FORECAST_REQUESTS_TOTAL = Counter(
+    "forecast_requests_total", "Nombre de forecasts multi-horizon servis", ["result"]
+)
+FORECAST_ERRORS_TOTAL = Counter(
+    "forecast_errors_total", "Nombre d'erreurs de forecast", ["reason"]
+)
+FORECAST_LATENCY_SECONDS = Histogram(
+    "forecast_latency_seconds", "Latence des forecasts multi-horizon"
+)
+FORECAST_POINTS_GENERATED_TOTAL = Counter(
+    "forecast_points_generated_total", "Nombre total de points de forecast générés (toutes requêtes)"
+)
+
 ML_TRAINING_RUNS_TOTAL = Gauge(
     "ml_training_runs_total", "Nombre de runs d'entraînement enregistrés dans MLflow"
 )
@@ -39,9 +55,17 @@ ML_MODEL_REJECTIONS_TOTAL = Gauge(
 ML_RETRAINING_TRIGGERED_TOTAL = Gauge(
     "ml_retraining_triggered_total", "Nombre de runs déclenchés par train-if-needed"
 )
-ML_LAST_TRAINING_MAE = Gauge("ml_last_training_mae", "MAE du run d'entraînement le plus récent")
-ML_BASELINE_MAE = Gauge("ml_baseline_mae", "MAE de la baseline lors du run le plus récent")
-ML_CHAMPION_MAE = Gauge("ml_champion_mae", "MAE du modèle champion actuel")
+ML_LAST_TRAINING_MAE = Gauge("ml_last_training_mae", "MAE du run d'entraînement le plus récent (T+1h)")
+ML_BASELINE_MAE = Gauge("ml_baseline_mae", "MAE de la baseline lors du run le plus récent (T+1h)")
+ML_CHAMPION_MAE = Gauge("ml_champion_mae", "MAE du modèle champion actuel (T+1h)")
+
+# Horizons clés (§14 du besoin) : mêmes gauges que ci-dessus, à T+24h et T+168h
+# -- permet de voir dans Grafana la dégradation de la MAE avec l'horizon,
+# jamais masquée par une seule MAE globale (cf. §7/§17 du besoin).
+ML_MAE_H24 = Gauge("ml_mae_h24", "MAE du run d'entraînement le plus récent à T+24h")
+ML_MAE_H168 = Gauge("ml_mae_h168", "MAE du run d'entraînement le plus récent à T+168h")
+ML_BASELINE_MAE_H24 = Gauge("ml_baseline_mae_h24", "MAE de la baseline lors du run le plus récent à T+24h")
+ML_BASELINE_MAE_H168 = Gauge("ml_baseline_mae_h168", "MAE de la baseline lors du run le plus récent à T+168h")
 ML_DRIFT_SCORE = Gauge(
     "ml_drift_score", "Score PSI de dérive par feature lors du run le plus récent", ["feature"]
 )
@@ -67,6 +91,19 @@ def observe_prediction_error(reason: str, latency_seconds: float) -> None:
     PREDICTION_REQUESTS_TOTAL.labels(result="error").inc()
     PREDICTION_ERRORS_TOTAL.labels(reason=reason).inc()
     PREDICTION_LATENCY_SECONDS.observe(latency_seconds)
+
+
+def observe_forecast_success(latency_seconds: float, n_points: int) -> None:
+    FORECAST_REQUESTS_TOTAL.labels(result="success").inc()
+    FORECAST_LATENCY_SECONDS.observe(latency_seconds)
+    FORECAST_POINTS_GENERATED_TOTAL.inc(n_points)
+    ML_LAST_PREDICTION_TIMESTAMP.set_to_current_time()
+
+
+def observe_forecast_error(reason: str, latency_seconds: float) -> None:
+    FORECAST_REQUESTS_TOTAL.labels(result="error").inc()
+    FORECAST_ERRORS_TOTAL.labels(reason=reason).inc()
+    FORECAST_LATENCY_SECONDS.observe(latency_seconds)
 
 
 def refresh_ml_metrics(settings: PredictionSettings | None = None) -> None:
@@ -108,6 +145,14 @@ def _refresh_experiment_metrics(client: MlflowClient, experiment_id: str) -> Non
     latest = latest_runs[0]
     if "mae" in latest.data.metrics:
         ML_LAST_TRAINING_MAE.set(latest.data.metrics["mae"])
+    if "mae_h24" in latest.data.metrics:
+        ML_MAE_H24.set(latest.data.metrics["mae_h24"])
+    if "mae_h168" in latest.data.metrics:
+        ML_MAE_H168.set(latest.data.metrics["mae_h168"])
+    if "baseline_mae_h24" in latest.data.metrics:
+        ML_BASELINE_MAE_H24.set(latest.data.metrics["baseline_mae_h24"])
+    if "baseline_mae_h168" in latest.data.metrics:
+        ML_BASELINE_MAE_H168.set(latest.data.metrics["baseline_mae_h168"])
     if "baseline_mae" in latest.data.metrics:
         ML_BASELINE_MAE.set(latest.data.metrics["baseline_mae"])
     if "drift_detected" in latest.data.metrics:
