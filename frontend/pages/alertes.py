@@ -4,6 +4,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from authentification.auth import require_authentication
 from branding import render_logo
 from formatting import (
     ALERT_SEVERITY_ORDER,
@@ -20,6 +21,7 @@ from formatting import (
 from services.alert_service import get_alerts
 from services.site_service import get_sites
 
+require_authentication()
 render_logo()
 
 st.header("Alertes")

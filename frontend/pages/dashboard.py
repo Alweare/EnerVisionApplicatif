@@ -1,7 +1,9 @@
 import streamlit as st
 
+from authentification.auth import require_authentication
 from branding import render_logo
 
+require_authentication()
 render_logo()
 
 st.title("EnerVision — Dashboard")
