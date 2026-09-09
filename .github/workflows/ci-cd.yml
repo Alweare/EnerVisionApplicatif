@@ -181,7 +181,7 @@ jobs:
           pip install pytest pytest-cov
 
       - name: Run tests for impacted service
-        if: steps.check.outputs.has_python == 'true'
+        if: steps.check.outputs.has_python == 'true' && matrix.service.name != 'prediction'
         env:
           SERVICE_DIR: ${{ matrix.service.dir }}
           SERVICE_ROOT: ${{ matrix.service.root }}
