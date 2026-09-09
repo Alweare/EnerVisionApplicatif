@@ -159,7 +159,7 @@ N lignes (`predicted_for` différent par ligne), inséré en un seul lot
 (`repository/prediction_repository.py::record_predictions`, une transaction
 pour jusqu'à 168 lignes plutôt que 168 allers-retours).
 
-**Une seule migration additive** : `db/migrations/V01_10__add_prediction_horizon_hours.sql`
+**Une seule migration additive** : `db/migrations/V01_09__add_prediction_horizon_hours.sql`
 ajoute `horizon_hours INTEGER` (nullable, non-bloquant, aucune ligne
 existante modifiée, aucune migration existante touchée). Nécessaire — pas
 un confort — parce qu'un appel `/forecast?hours=168` insère jusqu'à 168

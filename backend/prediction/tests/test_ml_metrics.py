@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -11,15 +12,28 @@ START = datetime(2026, 1, 1)
 MODEL_NAME = "consumption-predictor"
 
 
-N_ROWS = 25_000  # cf. test_training_pipeline.py : historique nécessaire au multi-horizon
+N_ROWS = 10_000  # cf. test_training_pipeline.py : historique nécessaire à l'apprentissage réel du motif hebdomadaire
+MINUTES_PER_ROW = 10  # aligné sur ROWS_PER_HOUR=6 (échantillonnage 10 min)
 
 
-def _linear_raw_frame(n: int = N_ROWS) -> pd.DataFrame:
+def _seasonal_raw_frame(n: int = N_ROWS, seed: int = 0) -> pd.DataFrame:
+    """Consommation bornée, saisonnalité journalière/hebdomadaire + bruit --
+    cf. test_training_pipeline.py::_seasonal_raw_frame pour le raisonnement
+    (XGBoost n'extrapole pas une rampe non bornée)."""
+    rng = np.random.default_rng(seed)
+    minutes = np.arange(n)
+    hours = (minutes * MINUTES_PER_ROW / 60.0) % 24
+    day_of_week = (minutes * MINUTES_PER_ROW // (60 * 24)) % 7
+    is_weekend = (day_of_week >= 5).astype(float)
+
+    daily_pattern = 10 + 6 * np.sin((hours - 7) / 24 * 2 * np.pi) + 3 * np.sin((hours - 18) / 12 * 2 * np.pi)
+    consumption = np.clip(daily_pattern - 2.0 * is_weekend + rng.normal(0, 0.5, size=n), 0.5, None)
+
     return pd.DataFrame(
         {
             "site_id": "SITE_A",
-            "measurement_date": [START + timedelta(minutes=i) for i in range(n)],
-            "consumption_kw": [float(i) for i in range(n)],
+            "measurement_date": [START + timedelta(minutes=MINUTES_PER_ROW * i) for i in range(n)],
+            "consumption_kw": consumption,
             "data_quality": "good",
             "null_reason": None,
         }
@@ -79,7 +93,7 @@ def test_refresh_ml_metrics_swallows_unexpected_errors(monkeypatch):
 
 def test_refresh_ml_metrics_reflects_champion_and_training_state(monkeypatch, mlflow_tracking_uri):
     monkeypatch.setattr(
-        "prediction.dataset.dataset.get_measurements", lambda: _linear_raw_frame().copy()
+        "prediction.dataset.dataset.get_measurements", lambda: _seasonal_raw_frame().copy()
     )
     settings = _settings(mlflow_tracking_uri)
 

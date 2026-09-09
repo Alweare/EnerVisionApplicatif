@@ -37,6 +37,9 @@ def _dataset_frame(n: int = 1000) -> pd.DataFrame:
     columns = {
         "site_id": "SITE_A",
         "measurement_date": [START + timedelta(minutes=i) for i in range(n)],
+        "consumption_kw": [float(i) for i in range(n)],
+        "lag_10min": [float(i) for i in range(n)],
+        "lag_30min": [float(i) for i in range(n)],
         "lag_1h": [float(i) for i in range(n)],
         "lag_24h": [float(i) for i in range(n)],
         "lag_168h": [float(i) for i in range(n)],
@@ -254,10 +257,10 @@ def test_multi_horizon_targets_use_the_correct_shift_per_horizon(monkeypatch):
 
     ds = build_dataset()
 
-    # target_h2 à la ligne 10 = consommation réelle 2h (120 min) plus tard.
-    assert ds["target_h2"].iloc[10] == ds["consumption_kw"].iloc[10 + 2 * 60]
+    # target_h2 à la ligne 10 = consommation réelle 2h plus tard (2 * HORIZON_ROWS lignes).
+    assert ds["target_h2"].iloc[10] == ds["consumption_kw"].iloc[10 + 2 * HORIZON_ROWS]
     # target_h1 (alias TARGET_COLUMN) inchangé par rapport au comportement historique.
-    assert ds[TARGET_COLUMN].iloc[10] == ds["consumption_kw"].iloc[10 + 60]
+    assert ds[TARGET_COLUMN].iloc[10] == ds["consumption_kw"].iloc[10 + HORIZON_ROWS]
 
 
 def test_clean_multi_horizon_dataset_requires_all_48_targets():

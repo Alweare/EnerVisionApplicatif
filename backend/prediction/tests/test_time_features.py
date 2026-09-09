@@ -21,15 +21,18 @@ from prediction.features.time_features import (
 START = datetime(2026, 1, 1)  # jeudi
 
 
+MINUTES_PER_ROW = 60 // ROWS_PER_HOUR  # mesures toutes les 10 min (ROWS_PER_HOUR=6)
+
+
 def _site_frame(site_id, consumptions, null_reasons=None):
-    """Construit une série d'une mesure par minute pour un site."""
+    """Construit une série d'une mesure toutes les MINUTES_PER_ROW minutes pour un site."""
     n = len(consumptions)
     if null_reasons is None:
         null_reasons = [None] * n
     return pd.DataFrame(
         {
             "site_id": site_id,
-            "measurement_date": [START + timedelta(minutes=i) for i in range(n)],
+            "measurement_date": [START + timedelta(minutes=MINUTES_PER_ROW * i) for i in range(n)],
             "consumption_kw": [float(c) for c in consumptions],
             "data_quality": ["good"] * n,
             "null_reason": null_reasons,
@@ -49,9 +52,9 @@ def test_lags_are_computed_per_site_and_never_mixed():
     out = add_time_features(df)
     b = out[out.site_id == "SITE_B"].reset_index(drop=True)
 
-    # Les 60 premières lignes de SITE_B n'ont pas d'antécédent 1 h -> NaN.
+    # Les ROWS_PER_HOUR premières lignes de SITE_B n'ont pas d'antécédent 1 h -> NaN.
     assert b["lag_1h"].iloc[:ROWS_PER_HOUR].isna().all()
-    # La 61e ligne pointe sur la 1re valeur de SITE_B (500), jamais SITE_A.
+    # La ligne suivante pointe sur la 1re valeur de SITE_B (500), jamais SITE_A.
     assert b["lag_1h"].iloc[ROWS_PER_HOUR] == 500.0
     # Aucune valeur de SITE_A (100..) n'a fui dans les lags de SITE_B.
     assert (b["lag_1h"].dropna() >= 500.0).all()
@@ -65,7 +68,7 @@ def test_lags_are_null_when_history_is_insufficient():
 
     out = add_time_features(df)
 
-    # lag_1h : NaN sur les 60 premières lignes, renseigné ensuite.
+    # lag_1h : NaN sur les ROWS_PER_HOUR premières lignes, renseigné ensuite.
     assert out["lag_1h"].iloc[:ROWS_PER_HOUR].isna().all()
     assert out["lag_1h"].iloc[ROWS_PER_HOUR:].notna().all()
     # lag_24h : jamais assez d'historique ici -> NaN partout, jamais 0.
@@ -116,9 +119,17 @@ def test_no_data_leakage_from_current_row():
     )
 
 
-# --- Prétraitement : neutralisation des consommations forward-fillées -----
+# --- Prétraitement : signalement (pas neutralisation) des consommations ---
+# --- forward-fillées --------------------------------------------------------
+#
+# Comportement actuel (évolution récente) : `consumption_kw` n'est plus mis à
+# NaN pour les lignes taintées -- il est désormais lui-même une feature
+# (`CONSUMPTION_FEATURE_COLUMNS` dans dataset.py), donc une valeur manquante
+# ferait perdre la ligne entière au dropna. À la place, `add_time_features`
+# calcule un indicateur `consumption_tainted` (0/1) à côté de la valeur brute
+# (potentiellement recopiée par le forward-fill de l'ETL), sans la neutraliser.
 
-def test_tainted_consumption_is_neutralized_but_row_is_kept():
+def test_tainted_consumption_is_flagged_but_not_neutralized():
     n = ROWS_PER_HOUR + 20
     consumptions = [100.0] * n
     null_reasons = [None] * n
@@ -136,12 +147,16 @@ def test_tainted_consumption_is_neutralized_but_row_is_kept():
     assert len(out) == n
     assert {"data_quality", "null_reason"} <= set(out.columns)
 
-    # La valeur poison de la ligne 5 ne nourrit aucun lag en aval...
-    assert np.isnan(out["lag_1h"].iloc[5 + ROWS_PER_HOUR])
-    # ... ni la moyenne glissante (qui reste à 100, pas tirée vers 99 999).
-    assert out["rolling_mean_24h"].iloc[10] == pytest.approx(100.0)
+    # La ligne 5 (network_loss, une raison "tainting") est marquée...
+    assert out["consumption_tainted"].iloc[5] == 1
+    # ... mais sa valeur brute (potentiellement recopiée) N'EST PLUS neutralisée :
+    # elle se propage telle quelle dans consumption_kw et les lags en aval.
+    assert out["consumption_kw"].iloc[5] == pytest.approx(99_999.0)
+    assert out["lag_1h"].iloc[5 + ROWS_PER_HOUR] == pytest.approx(99_999.0)
 
-    # La ligne 6 (température uniquement) garde sa consommation réelle.
+    # La ligne 6 (température uniquement, pas une raison "tainting") n'est
+    # pas marquée, et garde sa consommation réelle.
+    assert out["consumption_tainted"].iloc[6] == 0
     assert out["lag_1h"].iloc[6 + ROWS_PER_HOUR] == 100.0
 
 
@@ -195,7 +210,7 @@ def test_calendar_features_are_deterministic_from_measurement_date():
     assert first_row["day_of_week"] == 3  # jeudi (Monday=0)
     assert first_row["is_weekend"] == 0
 
-    # 3 jours plus tard (dimanche) à 14h -> ligne à l'index 3*1440 + 14*60.
+    # 3 jours plus tard (dimanche) à 14h -> ligne à l'index 3*ROWS_PER_DAY + 14*ROWS_PER_HOUR.
     sunday_14h_index = 3 * ROWS_PER_DAY + 14 * ROWS_PER_HOUR
     sunday_row = out.iloc[sunday_14h_index]
     assert sunday_row["hour_of_day"] == 14

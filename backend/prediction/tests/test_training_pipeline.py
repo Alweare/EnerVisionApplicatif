@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+import numpy as np
 import pandas as pd
 import pytest
 from mlflow.tracking import MlflowClient
@@ -12,18 +13,53 @@ from prediction.training.pipeline import _decide_promotion, run_training_pipelin
 START = datetime(2026, 1, 1)
 MODEL_NAME = "consumption-predictor"
 
-# Le modèle multi-horizon exige lag_168h (historique) et target_h48 (futur
-# connu jusqu'à T+48h) pour qu'une ligne soit exploitable : il faut donc
-# nettement plus d'historique synthétique qu'avec l'ancien modèle T+1h seul.
-N_ROWS = 25_000  # ~17.4 jours à 1 mesure/minute
+# Le modèle multi-horizon exige lag_168h (historique, ROWS_PER_WEEK=1008
+# lignes en arrière avec l'échantillonnage 10 min actuel) et target_h48
+# (futur, 48*ROWS_PER_HOUR=288 lignes en avant) pour qu'une ligne soit
+# exploitable -- minimum strict ~1297 lignes. Mais un signal périodique
+# hebdomadaire n'est réellement APPRENABLE par XGBoost (par opposition à
+# juste "structurellement possible à calculer") que si le train set couvre
+# plusieurs semaines : avec une seule semaine d'historique, le modèle ne voit
+# qu'un seul exemple de "mardi 15h" et ne peut pas moyenner le bruit, contrairement
+# à la baseline saisonnière qui, elle, n'a besoin que d'un seul point. ~10000
+# lignes -> ~6 semaines de train après nettoyage, largement suffisant, tout en
+# restant très inférieur à l'ancien fixture (25000 lignes/minute ~= 17 jours).
+N_ROWS = 10_000
+# Alignée sur ROWS_PER_HOUR=6 (échantillonnage 10 min) : indispensable pour
+# que lag_24h/lag_168h/rolling_mean_* correspondent réellement à des fenêtres
+# de temps de 24h/7j, condition nécessaire pour injecter une saisonnalité
+# journalière/hebdomadaire cohérente avec les features de production.
+MINUTES_PER_ROW = 10
 
 
-def _linear_raw_frame(n: int = N_ROWS) -> pd.DataFrame:
+def _seasonal_raw_frame(n: int = N_ROWS, seed: int = 0) -> pd.DataFrame:
+    """
+    Consommation bornée avec saisonnalité journalière/hebdomadaire + bruit.
+
+    Remplace l'ancienne rampe linéaire non bornée (`consumption_kw = i`) :
+    celle-ci convenait à une `LinearRegression` (extrapolation linéaire
+    parfaite), mais XGBoost (arbres de décision) ne peut pas extrapoler
+    au-delà de la plage de valeurs vues à l'entraînement -- sur une rampe
+    infinie, le test set (les dates les plus récentes, jamais vues à
+    l'entraînement) contient systématiquement des valeurs plus grandes que
+    tout ce que le modèle a appris, ce qui n'a rien à voir avec la qualité du
+    modèle. Un signal borné et périodique reste dans la plage apprise et
+    mesure ce que ce test est censé vérifier : la qualité réelle du modèle.
+    """
+    rng = np.random.default_rng(seed)
+    minutes = np.arange(n)
+    hours = (minutes * MINUTES_PER_ROW / 60.0) % 24
+    day_of_week = (minutes * MINUTES_PER_ROW // (60 * 24)) % 7
+    is_weekend = (day_of_week >= 5).astype(float)
+
+    daily_pattern = 10 + 6 * np.sin((hours - 7) / 24 * 2 * np.pi) + 3 * np.sin((hours - 18) / 12 * 2 * np.pi)
+    consumption = np.clip(daily_pattern - 2.0 * is_weekend + rng.normal(0, 0.5, size=n), 0.5, None)
+
     return pd.DataFrame(
         {
             "site_id": "SITE_A",
-            "measurement_date": [START + timedelta(minutes=i) for i in range(n)],
-            "consumption_kw": [float(i) for i in range(n)],
+            "measurement_date": [START + timedelta(minutes=MINUTES_PER_ROW * i) for i in range(n)],
+            "consumption_kw": consumption,
             "data_quality": "good",
             "null_reason": None,
         }
@@ -32,7 +68,7 @@ def _linear_raw_frame(n: int = N_ROWS) -> pd.DataFrame:
 
 @pytest.fixture(autouse=True)
 def _patch_measurements(monkeypatch):
-    raw = _linear_raw_frame()
+    raw = _seasonal_raw_frame()
     monkeypatch.setattr("prediction.dataset.dataset.get_measurements", lambda: raw.copy())
 
 
@@ -62,16 +98,17 @@ def test_first_candidate_becomes_champion_when_it_beats_baseline(mlflow_tracking
     assert result.mae < result.baseline_mae
 
     # Évaluation par horizon (§7 du besoin) : la MAE ne doit jamais être
-    # masquée par une seule valeur globale. Sur une série parfaitement
-    # linéaire, la régression est quasi parfaite à chaque horizon (très en
-    # dessous de la baseline), qui elle se dégrade nettement avec l'horizon.
-    assert result.mae_h1 < 1.0
-    assert result.mae_h24 < 1.0
-    assert result.mae_h48 < 1.0
-    assert result.baseline_mae_h1 < result.baseline_mae_h24 < result.baseline_mae_h48
+    # masquée par une seule valeur globale -- vérifiée aux 3 horizons clés,
+    # jamais en absolu (un signal saisonnier borné n'a pas de raison de
+    # dégrader monotonement avec l'horizon comme le ferait une rampe non
+    # bornée : XGBoost peut légitimement être aussi bon à T+48h qu'à T+1h si
+    # le patron hebdomadaire est bien appris).
+    assert result.mae_h1 < result.baseline_mae_h1
+    assert result.mae_h24 < result.baseline_mae_h24
+    assert result.mae_h48 < result.baseline_mae_h48
+    assert all(value > 0 for value in result.baseline_mae_by_horizon.values())
     assert len(result.mae_by_horizon) == MAX_HORIZON_HOURS
     assert len(result.baseline_mae_by_horizon) == MAX_HORIZON_HOURS
-    assert result.mae_mean < 1.0
 
     client = MlflowClient()
     champion = client.get_model_version_by_alias(MODEL_NAME, "champion")

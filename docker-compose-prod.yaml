@@ -59,16 +59,6 @@ services:
       KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
 
-  consumption:
-    image: ${CONSUMPTION_IMAGE}
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_APP_USER: ${POSTGRES_APP_USER}
-      POSTGRES_APP_PWD: ${POSTGRES_APP_PWD}
-    secrets:
-      - keycloak_client_secret
-
   etl:
     image: ${ETL_IMAGE}
     restart: unless-stopped
