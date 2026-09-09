@@ -81,3 +81,9 @@ if [[ "$STATUS" != "running" ]]; then
 fi
 
 log "$SERVICE déployé avec succès."
+
+if [[ -n "$PREVIOUS_IMAGE" && "$PREVIOUS_IMAGE" != "$IMAGE" ]]; then
+    log "Suppression de l'ancienne image ($PREVIOUS_IMAGE)..."
+    docker rmi "$PREVIOUS_IMAGE" 2>/dev/null \
+        || log "Image précédente encore référencée ailleurs, conservée."
+fi
