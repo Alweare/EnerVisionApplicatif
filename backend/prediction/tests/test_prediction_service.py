@@ -258,7 +258,7 @@ def _service_with_fake_champion(monkeypatch, base_timestamp=BASE_TIMESTAMP, reco
     return PredictionService(settings=_settings(), cache=FakeCache(FakeModel(), "7")), recorded
 
 
-@pytest.mark.parametrize("hours", [1, 24, 168])
+@pytest.mark.parametrize("hours", [1, 24, 48])
 def test_forecast_returns_exactly_hours_points(monkeypatch, hours):
     service, _ = _service_with_fake_champion(monkeypatch)
 
@@ -386,6 +386,6 @@ def test_forecast_calls_feature_builder_exactly_once_not_recursively(monkeypatch
     monkeypatch.setattr("prediction.inference.prediction_service.record_predictions", lambda rows: None)
     service = PredictionService(settings=_settings(), cache=FakeCache(FakeModel(), "7"))
 
-    service.forecast("SITE001", hours=168)
+    service.forecast("SITE001", hours=48)
 
     assert calls["count"] == 1

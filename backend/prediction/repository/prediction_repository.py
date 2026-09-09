@@ -15,7 +15,7 @@ _INSERT_QUERY = """
 """
 
 # horizon_hours (migration V01_10) distingue les prédictions par horizon : sans
-# ce filtre, un forecast 168h (jusqu'à 168 lignes/appel) noierait les
+# ce filtre, un forecast 48h (jusqu'à 48 lignes/appel) noierait les
 # prédictions T+1h et fausserait la comparaison à la MAE de référence (calculée
 # à T+1h, cf. training/pipeline.py).
 _MATCHED_QUERY = """
@@ -51,8 +51,8 @@ def record_prediction(
 
 def record_predictions(rows: list[dict], engine: Engine = default_engine) -> None:
     """
-    Insertion en lot (un forecast peut produire jusqu'à 168 lignes en un seul
-    appel) : une seule transaction plutôt que 168 allers-retours séparés.
+    Insertion en lot (un forecast peut produire jusqu'à 48 lignes en un seul
+    appel) : une seule transaction plutôt que 48 allers-retours séparés.
     Chaque `row` a les mêmes clés que les paramètres de `record_prediction`.
     """
     if not rows:

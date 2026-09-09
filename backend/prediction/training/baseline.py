@@ -41,8 +41,10 @@ def _baseline_lag_hours(horizon_hours: int) -> int:
       court terme (autocorrélation forte), donc la plus honnête comme
       référence.
     - h > 24h : saisonnalité hebdomadaire -- "même heure, la semaine
-      précédente". Comme h <= 168h (MAX_HORIZON_HOURS), T + h - 168h <= T :
-      la valeur de référence est toujours déjà connue en T, quel que soit h.
+      précédente". Comme h <= 168h (SEASONAL_PERIOD_HOURS), T + h - 168h <= T :
+      la valeur de référence est toujours déjà connue en T, quel que soit h
+      (l'horizon maximal du forecast, MAX_HORIZON_HOURS, est aujourd'hui 48h,
+      largement dans cette plage).
       Choisi plutôt qu'une règle "même heure hier" (qui ne serait valide que
       jusqu'à h=24h, redondante avec le régime de persistance) : une seule
       règle saisonnière suffit pour couvrir 25..168h simplement.

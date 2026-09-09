@@ -139,7 +139,7 @@ def _forecast_result(hours: int) -> ForecastResult:
     )
 
 
-@pytest.mark.parametrize("hours", [1, 24, 168])
+@pytest.mark.parametrize("hours", [1, 24, 48])
 def test_get_forecast_returns_200_with_exactly_hours_points(client, hours):
     app.dependency_overrides[get_prediction_service] = lambda: FakeService(
         forecast_result=_forecast_result(hours)
@@ -202,12 +202,12 @@ def test_get_forecast_rejects_hours_zero(client):
     assert response.status_code == 422
 
 
-def test_get_forecast_rejects_hours_above_168(client):
+def test_get_forecast_rejects_hours_above_48(client):
     app.dependency_overrides[get_prediction_service] = lambda: FakeService(
-        forecast_result=_forecast_result(168)
+        forecast_result=_forecast_result(48)
     )
 
-    response = client.get("/api/v1/sites/SITE001/forecast?hours=169")
+    response = client.get("/api/v1/sites/SITE001/forecast?hours=49")
 
     assert response.status_code == 422
 

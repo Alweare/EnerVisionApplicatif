@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from prediction.api.schemas import ForecastPoint, ForecastResponse, PredictionResponse
+from prediction.dataset.dataset import MAX_HORIZON_HOURS
 from prediction.inference.feature_builder import InsufficientHistoryError
 from prediction.inference.prediction_service import NoChampionModelError, PredictionService
 from prediction.observability.ml_metrics import (
@@ -99,16 +100,18 @@ def get_site_prediction(
 @router.get(
     "/{site_id}/forecast",
     response_model=ForecastResponse,
-    summary="Prévision horaire de consommation de T+1h à T+`hours`h (7 jours max)",
+    summary="Prévision horaire de consommation de T+1h à T+`hours`h (2 jours max)",
     responses={
         404: {"description": _NOT_FOUND_DESCRIPTION},
         503: {"description": _UNAVAILABLE_DESCRIPTION},
-        422: {"description": "hours hors de la plage autorisée (1 à 168)"},
+        422: {"description": f"hours hors de la plage autorisée (1 à {MAX_HORIZON_HOURS})"},
     },
 )
 def get_site_forecast(
     site_id: str,
-    hours: int = Query(24, ge=1, le=168, description="Horizon en heures, de 1 à 168 (7 jours)."),
+    hours: int = Query(
+        24, ge=1, le=MAX_HORIZON_HOURS, description=f"Horizon en heures, de 1 à {MAX_HORIZON_HOURS} (2 jours)."
+    ),
     service: PredictionService = Depends(get_prediction_service),
 ) -> ForecastResponse:
     started_at = time.perf_counter()

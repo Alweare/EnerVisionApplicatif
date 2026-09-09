@@ -59,13 +59,13 @@ ML_LAST_TRAINING_MAE = Gauge("ml_last_training_mae", "MAE du run d'entraînement
 ML_BASELINE_MAE = Gauge("ml_baseline_mae", "MAE de la baseline lors du run le plus récent (T+1h)")
 ML_CHAMPION_MAE = Gauge("ml_champion_mae", "MAE du modèle champion actuel (T+1h)")
 
-# Horizons clés (§14 du besoin) : mêmes gauges que ci-dessus, à T+24h et T+168h
+# Horizons clés (§14 du besoin) : mêmes gauges que ci-dessus, à T+24h et T+48h
 # -- permet de voir dans Grafana la dégradation de la MAE avec l'horizon,
 # jamais masquée par une seule MAE globale (cf. §7/§17 du besoin).
 ML_MAE_H24 = Gauge("ml_mae_h24", "MAE du run d'entraînement le plus récent à T+24h")
-ML_MAE_H168 = Gauge("ml_mae_h168", "MAE du run d'entraînement le plus récent à T+168h")
+ML_MAE_H48 = Gauge("ml_mae_h48", "MAE du run d'entraînement le plus récent à T+48h")
 ML_BASELINE_MAE_H24 = Gauge("ml_baseline_mae_h24", "MAE de la baseline lors du run le plus récent à T+24h")
-ML_BASELINE_MAE_H168 = Gauge("ml_baseline_mae_h168", "MAE de la baseline lors du run le plus récent à T+168h")
+ML_BASELINE_MAE_H48 = Gauge("ml_baseline_mae_h48", "MAE de la baseline lors du run le plus récent à T+48h")
 ML_DRIFT_SCORE = Gauge(
     "ml_drift_score", "Score PSI de dérive par feature lors du run le plus récent", ["feature"]
 )
@@ -147,12 +147,12 @@ def _refresh_experiment_metrics(client: MlflowClient, experiment_id: str) -> Non
         ML_LAST_TRAINING_MAE.set(latest.data.metrics["mae"])
     if "mae_h24" in latest.data.metrics:
         ML_MAE_H24.set(latest.data.metrics["mae_h24"])
-    if "mae_h168" in latest.data.metrics:
-        ML_MAE_H168.set(latest.data.metrics["mae_h168"])
+    if "mae_h48" in latest.data.metrics:
+        ML_MAE_H48.set(latest.data.metrics["mae_h48"])
     if "baseline_mae_h24" in latest.data.metrics:
         ML_BASELINE_MAE_H24.set(latest.data.metrics["baseline_mae_h24"])
-    if "baseline_mae_h168" in latest.data.metrics:
-        ML_BASELINE_MAE_H168.set(latest.data.metrics["baseline_mae_h168"])
+    if "baseline_mae_h48" in latest.data.metrics:
+        ML_BASELINE_MAE_H48.set(latest.data.metrics["baseline_mae_h48"])
     if "baseline_mae" in latest.data.metrics:
         ML_BASELINE_MAE.set(latest.data.metrics["baseline_mae"])
     if "drift_detected" in latest.data.metrics:

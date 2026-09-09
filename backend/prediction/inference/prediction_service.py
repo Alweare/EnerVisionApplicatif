@@ -91,11 +91,11 @@ class PredictionService:
     def _predict_all_horizons(self, site_id: str) -> tuple[np.ndarray, pd.Timestamp, str]:
         """
         Charge le champion, construit les features du dernier point exploitable
-        du site (`base_timestamp`), et prédit en **un seul appel** les 168
+        du site (`base_timestamp`), et prédit en **un seul appel** les 48
         horizons (modèle multi-output direct, cf. training/pipeline.py -- pas
         de boucle récursive, pas de réinjection des prédictions précédentes).
         Renvoie un tableau 1D de `MAX_HORIZON_HOURS` valeurs, indexé horizon-1
-        (predictions[0] = T+1h, ..., predictions[167] = T+168h).
+        (predictions[0] = T+1h, ..., predictions[47] = T+48h).
         """
         model, version = self._cache.get(self._client)
         X, base_timestamp = build_latest_features(site_id)
@@ -147,7 +147,7 @@ class PredictionService:
 
     def forecast(self, site_id: str, hours: int, persist: bool = True) -> ForecastResult:
         """
-        Courbe horaire T+1h..T+`hours`h (1 <= hours <= 168), à partir du même
+        Courbe horaire T+1h..T+`hours`h (1 <= hours <= 48), à partir du même
         modèle multi-output et du même point d'ancrage que `predict()`. Chaque
         horizon est une sortie directe du modèle (pas de boucle, pas de
         réinjection des prédictions précédentes) : l'erreur ne se propage pas

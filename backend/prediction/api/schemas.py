@@ -32,6 +32,6 @@ class ForecastResponse(BaseModel):
         description="Dernière mesure réellement utilisée pour construire les features. "
         "Peut être postérieure à `generated_at` avec un dataset simulé/historique."
     )
-    horizon_hours: int = Field(examples=[24], description="Horizon demandé (1 à 168).")
+    horizon_hours: int = Field(examples=[24], description="Horizon demandé (1 à 48).")
     model_version: str = Field(examples=["7"])
     predictions: list[ForecastPoint]

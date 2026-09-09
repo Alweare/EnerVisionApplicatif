@@ -214,7 +214,35 @@ def test_calendar_features_never_depend_on_consumption_value():
     poisoned.loc[100, "consumption_kw"] = 99_999.0
     poisoned_out = add_time_features(poisoned)
 
-    for column in ("hour_of_day", "day_of_week", "is_weekend"):
+    for column in (
+        "hour_of_day",
+        "day_of_week",
+        "is_weekend",
+        "hour_sin",
+        "hour_cos",
+        "day_sin",
+        "day_cos",
+    ):
         pd.testing.assert_series_equal(
             reference[column], poisoned_out[column], check_names=False
         )
+
+
+def test_cyclic_calendar_encoding_matches_hour_and_day_of_week():
+    # START = 2026-01-01 00:00, un jeudi (day_of_week=3).
+    df = _site_frame("SITE_A", [1.0] * 10)
+
+    out = add_time_features(df)
+    row = out.iloc[0]
+
+    assert row["hour_of_day"] == 0
+    assert row["hour_sin"] == pytest.approx(0.0, abs=1e-9)
+    assert row["hour_cos"] == pytest.approx(1.0)
+
+    assert row["day_of_week"] == 3
+    assert row["day_sin"] == pytest.approx(np.sin(2 * np.pi * 3 / 7))
+    assert row["day_cos"] == pytest.approx(np.cos(2 * np.pi * 3 / 7))
+
+    # sin^2 + cos^2 == 1 pour tout encodage cyclique valide.
+    assert row["hour_sin"] ** 2 + row["hour_cos"] ** 2 == pytest.approx(1.0)
+    assert row["day_sin"] ** 2 + row["day_cos"] ** 2 == pytest.approx(1.0)

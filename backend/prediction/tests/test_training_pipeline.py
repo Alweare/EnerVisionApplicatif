@@ -12,9 +12,9 @@ from prediction.training.pipeline import _decide_promotion, run_training_pipelin
 START = datetime(2026, 1, 1)
 MODEL_NAME = "consumption-predictor"
 
-# Le modèle multi-horizon exige lag_168h/target_h168 (10080 lignes avant ET
-# après une ligne pour qu'elle soit exploitable) : il faut donc nettement plus
-# de 7+7 jours d'historique synthétique qu'avec l'ancien modèle T+1h seul.
+# Le modèle multi-horizon exige lag_168h (historique) et target_h48 (futur
+# connu jusqu'à T+48h) pour qu'une ligne soit exploitable : il faut donc
+# nettement plus d'historique synthétique qu'avec l'ancien modèle T+1h seul.
 N_ROWS = 25_000  # ~17.4 jours à 1 mesure/minute
 
 
@@ -67,8 +67,8 @@ def test_first_candidate_becomes_champion_when_it_beats_baseline(mlflow_tracking
     # dessous de la baseline), qui elle se dégrade nettement avec l'horizon.
     assert result.mae_h1 < 1.0
     assert result.mae_h24 < 1.0
-    assert result.mae_h168 < 1.0
-    assert result.baseline_mae_h1 < result.baseline_mae_h24 < result.baseline_mae_h168
+    assert result.mae_h48 < 1.0
+    assert result.baseline_mae_h1 < result.baseline_mae_h24 < result.baseline_mae_h48
     assert len(result.mae_by_horizon) == MAX_HORIZON_HOURS
     assert len(result.baseline_mae_by_horizon) == MAX_HORIZON_HOURS
     assert result.mae_mean < 1.0
@@ -214,16 +214,16 @@ def test_logged_run_has_expected_params_and_metrics(mlflow_tracking_uri):
     assert run.data.tags["retrain_reasons"] == "no_existing_champion"
 
     # Horizons clés (§7/§10 du besoin) : lisibles comme métriques MLflow
-    # scalaires, jamais 168 métriques séparées.
+    # scalaires, jamais 48 métriques séparées.
     assert run.data.metrics["mae_h1"] == pytest.approx(result.mae_h1)
     assert run.data.metrics["mae_h24"] == pytest.approx(result.mae_h24)
-    assert run.data.metrics["mae_h168"] == pytest.approx(result.mae_h168)
+    assert run.data.metrics["mae_h48"] == pytest.approx(result.mae_h48)
     assert run.data.metrics["baseline_mae_h1"] == pytest.approx(result.baseline_mae_h1)
     assert run.data.metrics["baseline_mae_h24"] == pytest.approx(result.baseline_mae_h24)
-    assert run.data.metrics["baseline_mae_h168"] == pytest.approx(result.baseline_mae_h168)
+    assert run.data.metrics["baseline_mae_h48"] == pytest.approx(result.baseline_mae_h48)
     assert run.data.metrics["mae_mean"] == pytest.approx(result.mae_mean)
 
-    # Détail des 168 horizons : artefact JSON, pas 168 métriques MLflow.
+    # Détail des 48 horizons : artefact JSON, pas 48 métriques MLflow.
     artifacts = [artifact.path for artifact in client.list_artifacts(result.run_id)]
     assert "mae_by_horizon.json" in artifacts
 
@@ -233,7 +233,7 @@ def test_logged_run_has_expected_params_and_metrics(mlflow_tracking_uri):
 
 def test_decide_promotion_rejects_candidate_worse_than_baseline_at_long_horizon_even_if_great_at_h1():
     """
-    Un candidat excellent à T+1h/T+24h mais moins bon que la baseline à T+168h
+    Un candidat excellent à T+1h/T+24h mais moins bon que la baseline à T+48h
     ne doit jamais être promu -- même s'il n'y a pas encore de champion.
     """
     settings = _settings(mlflow_tracking_uri="")
@@ -242,13 +242,13 @@ def test_decide_promotion_rejects_candidate_worse_than_baseline_at_long_horizon_
         settings=settings,
         has_champion=False,
         champion_unavailable=False,
-        mae_by_key_horizon={1: 0.1, 24: 0.2, 168: 150.0},
-        baseline_mae_by_key_horizon={1: 1.0, 24: 1.0, 168: 100.0},
+        mae_by_key_horizon={1: 0.1, 24: 0.2, 48: 150.0},
+        baseline_mae_by_key_horizon={1: 1.0, 24: 1.0, 48: 100.0},
         champion_mae_by_key_horizon=None,
     )
 
     assert promoted is False
-    assert "168" in reason
+    assert "48" in reason
 
 
 def test_decide_promotion_promotes_when_candidate_beats_baseline_at_every_key_horizon():
@@ -258,26 +258,26 @@ def test_decide_promotion_promotes_when_candidate_beats_baseline_at_every_key_ho
         settings=settings,
         has_champion=False,
         champion_unavailable=False,
-        mae_by_key_horizon={1: 0.1, 24: 0.1, 168: 0.1},
-        baseline_mae_by_key_horizon={1: 1.0, 24: 1.0, 168: 1.0},
+        mae_by_key_horizon={1: 0.1, 24: 0.1, 48: 0.1},
+        baseline_mae_by_key_horizon={1: 1.0, 24: 1.0, 48: 1.0},
         champion_mae_by_key_horizon=None,
     )
 
     assert promoted is True
 
 
-def test_decide_promotion_rejects_when_candidate_does_not_beat_champion_at_h168_only():
+def test_decide_promotion_rejects_when_candidate_does_not_beat_champion_at_h48_only():
     settings = _settings(mlflow_tracking_uri="")
 
     promoted, reason = _decide_promotion(
         settings=settings,
         has_champion=True,
         champion_unavailable=False,
-        mae_by_key_horizon={1: 0.05, 24: 0.05, 168: 50.0},
-        baseline_mae_by_key_horizon={1: 1.0, 24: 1.0, 168: 100.0},
-        champion_mae_by_key_horizon={1: 1.0, 24: 1.0, 168: 50.1},
+        mae_by_key_horizon={1: 0.05, 24: 0.05, 48: 50.0},
+        baseline_mae_by_key_horizon={1: 1.0, 24: 1.0, 48: 100.0},
+        champion_mae_by_key_horizon={1: 1.0, 24: 1.0, 48: 50.1},
     )
 
     assert promoted is False
     assert "champion" in reason
-    assert "168" in reason
+    assert "48" in reason

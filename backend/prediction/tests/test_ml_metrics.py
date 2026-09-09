@@ -102,9 +102,9 @@ def test_refresh_ml_metrics_reflects_champion_and_training_state(monkeypatch, ml
     # Horizons clés (§14 du besoin) : la dégradation de la MAE avec l'horizon
     # doit être visible dans Prometheus, pas seulement dans MLflow.
     assert ml_metrics.ML_MAE_H24._value.get() == pytest.approx(result.mae_h24)
-    assert ml_metrics.ML_MAE_H168._value.get() == pytest.approx(result.mae_h168)
+    assert ml_metrics.ML_MAE_H48._value.get() == pytest.approx(result.mae_h48)
     assert ml_metrics.ML_BASELINE_MAE_H24._value.get() == pytest.approx(result.baseline_mae_h24)
-    assert ml_metrics.ML_BASELINE_MAE_H168._value.get() == pytest.approx(result.baseline_mae_h168)
+    assert ml_metrics.ML_BASELINE_MAE_H48._value.get() == pytest.approx(result.baseline_mae_h48)
 
 
 def test_observe_forecast_success_increments_metrics_and_points_counter():

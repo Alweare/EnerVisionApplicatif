@@ -1,15 +1,15 @@
 """
 Constitution et découpage du jeu d'entraînement (EN-263), étendu au forecast
-multi-horizon (T+1h à T+168h).
+multi-horizon (T+1h à T+48h).
 
-Cible = consommation à T+1h..T+168h (décalées dans le futur : prédire le
+Cible = consommation à T+1h..T+48h (décalées dans le futur : prédire le
 présent ne sert à rien). Split strictement chronologique, jamais aléatoire :
 en prod on prédit toujours vers le futur, s'entraîner sur des dates
 postérieures au test fausse l'évaluation.
 
 `TARGET_COLUMN` ("target") reste la cible T+1h historique (alias de
 `target_h1`), conservée pour compatibilité avec le code/tests existants.
-`MULTI_HORIZON_TARGET_COLUMNS` porte les 168 cibles T+1h..T+168h utilisées par
+`MULTI_HORIZON_TARGET_COLUMNS` porte les 48 cibles T+1h..T+48h utilisées par
 le modèle de forecast (un seul régresseur multi-output, cf. training/pipeline.py).
 """
 
@@ -22,11 +22,22 @@ from prediction.repository.measurement_repository import get_measurements
 
 # Features "consommation passée" : lags + moyennes glissantes, calculées par
 # site à partir de l'historique brut (features/time_features.add_time_features).
-CONSUMPTION_FEATURE_COLUMNS = ["lag_1h", "lag_24h", "lag_168h", "rolling_mean_24h", "rolling_mean_168h"]
+CONSUMPTION_FEATURE_COLUMNS = ["consumption_kw", "lag_10min","lag_30min","lag_1h", "lag_24h", "lag_168h", "rolling_mean_24h", "rolling_mean_168h"]
 # Features calendaires : déterministes depuis measurement_date, pas de fuite,
 # pas d'historique requis. Ajoutées pour donner un signal de saisonnalité
 # journalière/hebdomadaire nécessaire au-delà de quelques heures d'horizon.
-CALENDAR_FEATURE_COLUMNS = ["hour_of_day", "day_of_week", "is_weekend"]
+# hour_sin/hour_cos/day_sin/day_cos encodent hour_of_day/day_of_week sous
+# forme cyclique (23h proche de 0h, dimanche proche de lundi) -- une
+# LinearRegression ne peut pas capter cette proximité depuis la valeur brute.
+CALENDAR_FEATURE_COLUMNS = [
+    "hour_of_day",
+    "day_of_week",
+    "is_weekend",
+    "hour_sin",
+    "hour_cos",
+    "day_sin",
+    "day_cos",
+]
 FEATURE_COLUMNS = CONSUMPTION_FEATURE_COLUMNS + CALENDAR_FEATURE_COLUMNS
 
 # Features participant au calcul de drift (PSI). Les features calendaires sont
@@ -42,12 +53,12 @@ TARGET_COLUMN = "target"
 # pour compatibilité (alias de la cible T+1h).
 HORIZON_ROWS = ROWS_PER_HOUR
 
-# Forecast multi-horizon : granularité 1 h, horizon 1..168 h (7 jours).
-MAX_HORIZON_HOURS = 168
+# Forecast multi-horizon : granularité 1 h, horizon 1..48 h (2 jours).
+MAX_HORIZON_HOURS = 48
 HORIZONS_HOURS = list(range(1, MAX_HORIZON_HOURS + 1))
-# Horizons "clés" utilisés pour l'évaluation/promotion lisibles (§7/§9 du
-# besoin) : court terme, 1 jour, horizon maximal.
-KEY_HORIZONS_HOURS = (1, 24, MAX_HORIZON_HOURS)
+
+# Horizons clés utilisés pour l'évaluation et la promotion.
+KEY_HORIZONS_HOURS = (1, 24, 48)
 TARGET_COLUMN_PREFIX = "target_h"
 MULTI_HORIZON_TARGET_COLUMNS = [f"{TARGET_COLUMN_PREFIX}{h}" for h in HORIZONS_HOURS]
 
@@ -65,7 +76,7 @@ class NotEnoughDataError(Exception):
 
 def build_dataset() -> pd.DataFrame:
     """
-    Ajoute une cible par horizon (`target_h1`..`target_h168`) = `consumption_kw`
+    Ajoute une cible par horizon (`target_h1`..`target_h48`) = `consumption_kw`
     décalée de h heures par site. `TARGET_COLUMN` ("target") reste un alias de
     `target_h1`, pour compatibilité.
 
@@ -74,7 +85,7 @@ def build_dataset() -> pd.DataFrame:
     """
     df = add_time_features(get_measurements())
     grouped_consumption = df.groupby("site_id")["consumption_kw"]
-    # Construites en un DataFrame séparé puis concaténées en une fois : 168
+    # Construites en un DataFrame séparé puis concaténées en une fois : 48
     # `df[col] = ...` répétés fragmenteraient le DataFrame (avertissement
     # pandas), sans changer le résultat.
     targets = pd.concat(
@@ -96,10 +107,10 @@ def clean_dataset(df: pd.DataFrame) -> pd.DataFrame:
 
 def clean_multi_horizon_dataset(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Comme `clean_dataset`, mais exige les 168 cibles (une ligne n'est
+    Comme `clean_dataset`, mais exige les 48 cibles (une ligne n'est
     exploitable pour l'entraînement multi-output que si son futur est connu
-    jusqu'à T+168h). Réduit la fenêtre d'entraînement utilisable aux lignes
-    dont les 7 jours suivants sont déjà observés -- attendu, pas un bug.
+    jusqu'à T+48h). Réduit la fenêtre d'entraînement utilisable aux lignes
+    dont les 2 jours suivants sont déjà observés -- attendu, pas un bug.
     """
     df = df.dropna(subset=FEATURE_COLUMNS + MULTI_HORIZON_TARGET_COLUMNS)
     return df.sort_values("measurement_date")
@@ -180,7 +191,7 @@ def split_train_val_test_multi_horizon(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Comme `split_train_val_test`, mais nettoie via `clean_multi_horizon_dataset`
-    (168 cibles requises). C'est le split réellement utilisé par le pipeline
+    (48 cibles requises). C'est le split réellement utilisé par le pipeline
     d'entraînement du modèle de forecast (training/pipeline.py).
     """
     train, validation, test = _split_by_cutoffs(

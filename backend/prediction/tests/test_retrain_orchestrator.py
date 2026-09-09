@@ -13,8 +13,8 @@ NO_DRIFT = DriftResult(feature_scores={"lag_1h": 0.01}, drifted_features=[], thr
 DRIFT = DriftResult(feature_scores={"lag_1h": 0.9}, drifted_features=["lag_1h"], threshold=0.2, drift_detected=True)
 
 
-# Le modèle multi-horizon exige lag_168h/target_h168 (10080 lignes avant ET
-# après une ligne pour qu'elle soit exploitable) : cf. test_training_pipeline.py.
+# Le modèle multi-horizon exige lag_168h (historique) et target_h48 (futur
+# connu jusqu'à T+48h) pour qu'une ligne soit exploitable : cf. test_training_pipeline.py.
 N_ROWS = 25_000
 
 

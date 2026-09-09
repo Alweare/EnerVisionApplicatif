@@ -45,13 +45,17 @@ def _dataset_frame(n: int = 1000) -> pd.DataFrame:
         "hour_of_day": [i % 24 for i in range(n)],
         "day_of_week": [i % 7 for i in range(n)],
         "is_weekend": [int(i % 7 >= 5) for i in range(n)],
+        "hour_sin": [np.sin(2 * np.pi * (i % 24) / 24) for i in range(n)],
+        "hour_cos": [np.cos(2 * np.pi * (i % 24) / 24) for i in range(n)],
+        "day_sin": [np.sin(2 * np.pi * (i % 7) / 7) for i in range(n)],
+        "day_cos": [np.cos(2 * np.pi * (i % 7) / 7) for i in range(n)],
         TARGET_COLUMN: [float(i) for i in range(n)],
     }
     return pd.DataFrame(columns)
 
 
 def _multi_horizon_dataset_frame(n: int = 1000) -> pd.DataFrame:
-    """Comme `_dataset_frame`, en ajoutant les 168 cibles multi-horizon."""
+    """Comme `_dataset_frame`, en ajoutant les 48 cibles multi-horizon."""
     df = _dataset_frame(n)
     for horizon_hours in HORIZONS_HOURS:
         df[f"target_h{horizon_hours}"] = [float(i) for i in range(n)]
@@ -209,7 +213,7 @@ def test_clean_dataset_drops_missing_feature_or_target_and_sorts():
     assert cleaned["measurement_date"].is_monotonic_increasing
 
 
-# --- Forecast multi-horizon : 168 cibles ------------------------------------
+# --- Forecast multi-horizon : 48 cibles -------------------------------------
 
 
 def test_build_dataset_creates_one_target_column_per_horizon(monkeypatch):
@@ -228,7 +232,7 @@ def test_build_dataset_creates_one_target_column_per_horizon(monkeypatch):
     ds = build_dataset()
 
     assert set(MULTI_HORIZON_TARGET_COLUMNS) <= set(ds.columns)
-    assert len(MULTI_HORIZON_TARGET_COLUMNS) == 168
+    assert len(MULTI_HORIZON_TARGET_COLUMNS) == 48
     # target_h1 == TARGET_COLUMN (alias de compatibilité).
     pd.testing.assert_series_equal(
         ds["target_h1"], ds[TARGET_COLUMN], check_names=False
@@ -256,9 +260,9 @@ def test_multi_horizon_targets_use_the_correct_shift_per_horizon(monkeypatch):
     assert ds[TARGET_COLUMN].iloc[10] == ds["consumption_kw"].iloc[10 + 60]
 
 
-def test_clean_multi_horizon_dataset_requires_all_168_targets():
+def test_clean_multi_horizon_dataset_requires_all_48_targets():
     df = _multi_horizon_dataset_frame(300)
-    df.loc[0, "target_h168"] = np.nan  # seule la ligne 0 perd sa cible T+168h
+    df.loc[0, "target_h48"] = np.nan  # seule la ligne 0 perd sa cible T+48h
 
     cleaned = clean_multi_horizon_dataset(df)
 

@@ -36,18 +36,18 @@ class TrainingPipelineResult:
     run_id: str
     model_version: str
 
-    # Détail complet (1..168h), exposé en Python et loggé en artefact MLflow
-    # (jamais en 168 métriques MLflow séparées -- resterait illisible, §7 du besoin).
+    # Détail complet (1..48h), exposé en Python et loggé en artefact MLflow
+    # (jamais en 48 métriques MLflow séparées -- resterait illisible, §7 du besoin).
     mae_by_horizon: dict[int, float]
     baseline_mae_by_horizon: dict[int, float]
 
     # Horizons clés (§7/§9 du besoin), aussi loggés comme métriques MLflow scalaires.
     mae_h1: float
     mae_h24: float
-    mae_h168: float
+    mae_h48: float
     baseline_mae_h1: float
     baseline_mae_h24: float
-    baseline_mae_h168: float
+    baseline_mae_h48: float
     mae_mean: float
     mae_improvement_vs_baseline_by_key_horizon: dict[int, float]
 
@@ -80,7 +80,7 @@ def _dataset_max_date(*frames: pd.DataFrame) -> str:
 
 def _mae_by_horizon(Y_true: pd.DataFrame, predictions) -> dict[int, float]:
     """
-    MAE par horizon à partir des 168 colonnes cibles et de la sortie du modèle
+    MAE par horizon à partir des 48 colonnes cibles et de la sortie du modèle
     multi-output (mêmes colonnes, même ordre que `MULTI_HORIZON_TARGET_COLUMNS`
     -- l'ordre est fixé une fois pour toutes par `HORIZONS_HOURS`, utilisé à la
     fois pour construire Y_train à l'entraînement et pour interpréter la sortie
@@ -235,7 +235,7 @@ def run_training_pipeline(
                 mlflow.log_metric(f"drift_psi_{feature}", score)
             mlflow.log_metric("drift_detected", float(drift_result.drift_detected))
 
-        # Détail des 168 horizons : artefact JSON, jamais 168 métriques MLflow
+        # Détail des 48 horizons : artefact JSON, jamais 48 métriques MLflow
         # séparées (resterait illisible dans l'UI, §7 du besoin).
         mlflow.log_dict(
             {
@@ -271,7 +271,7 @@ def run_training_pipeline(
             "model_version": version.version,
             "mae_h1": mae_by_key_horizon[1],
             "mae_h24": mae_by_key_horizon[24],
-            "mae_h168": mae_by_key_horizon[MAX_HORIZON_HOURS],
+            "mae_h48": mae_by_key_horizon[MAX_HORIZON_HOURS],
             "baseline_mae_h1": baseline_mae_by_key_horizon[1],
             "champion_mae_h1": champion_mae_by_key_horizon[1] if champion_mae_by_key_horizon else None,
             "promoted": promoted,
@@ -285,10 +285,10 @@ def run_training_pipeline(
         baseline_mae_by_horizon=baseline_mae_by_horizon,
         mae_h1=mae_by_key_horizon[1],
         mae_h24=mae_by_key_horizon[24],
-        mae_h168=mae_by_key_horizon[MAX_HORIZON_HOURS],
+        mae_h48=mae_by_key_horizon[MAX_HORIZON_HOURS],
         baseline_mae_h1=baseline_mae_by_key_horizon[1],
         baseline_mae_h24=baseline_mae_by_key_horizon[24],
-        baseline_mae_h168=baseline_mae_by_key_horizon[MAX_HORIZON_HOURS],
+        baseline_mae_h48=baseline_mae_by_key_horizon[MAX_HORIZON_HOURS],
         mae_mean=mae_mean,
         mae_improvement_vs_baseline_by_key_horizon=improvement_vs_baseline_by_key_horizon,
         mae=mae_by_key_horizon[1],
@@ -323,8 +323,8 @@ def _decide_promotion(
     """
     Règle de promotion multi-horizon (§9 du besoin) : le candidat doit battre
     la baseline puis (s'il existe) le champion **simultanément** à chaque
-    horizon clé (h1, h24, h168) -- pas seulement en moyenne, pour ne jamais
-    promouvoir un modèle excellent à T+1h mais catastrophique à T+168h.
+    horizon clé (h1, h24, h48) -- pas seulement en moyenne, pour ne jamais
+    promouvoir un modèle excellent à T+1h mais catastrophique à T+48h.
     `mae_mean` reste une information complémentaire (loggée dans MLflow),
     jamais un critère de décision.
     """
@@ -346,12 +346,12 @@ def _decide_promotion(
         )
 
     if not has_champion:
-        return True, "no existing champion, candidate beats the baseline at all key horizons (h1, h24, h168)"
+        return True, "no existing champion, candidate beats the baseline at all key horizons (h1, h24, h48)"
 
     if champion_unavailable:
         return True, (
             "existing champion model could not be loaded (artifact unavailable); candidate beats baseline "
-            "at all key horizons (h1, h24, h168), promoted to restore a usable champion"
+            "at all key horizons (h1, h24, h48), promoted to restore a usable champion"
         )
 
     improvements_vs_champion = {
@@ -372,6 +372,6 @@ def _decide_promotion(
         )
 
     return True, (
-        f"candidate mae_h1={mae_by_key_horizon[1]:.4f} beats champion at all key horizons (h1, h24, h168) "
+        f"candidate mae_h1={mae_by_key_horizon[1]:.4f} beats champion at all key horizons (h1, h24, h48) "
         f"by the required {settings.min_improvement_vs_champion:.1%}"
     )
