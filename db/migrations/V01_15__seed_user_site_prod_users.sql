@@ -1,3 +1,4 @@
+-- Claire Moreau (rôle admin) : tous les sites existants.
 INSERT INTO ener.user_site (user_id, site_id)
 SELECT '2f6840de-1211-44e5-a33a-39972486c3a6', site_id
 FROM ener.site
