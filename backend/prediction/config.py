@@ -9,6 +9,14 @@ DEFAULT_MIN_IMPROVEMENT_VS_CHAMPION = 0.01
 DEFAULT_DRIFT_THRESHOLD = 0.2
 DEFAULT_MIN_NEW_ROWS = 1440
 
+# Scheduler de forecast (§Scheduled forecasting) : activé par défaut en
+# production (le forecast doit tourner sans intervention manuelle), mais
+# tests/conftest.py force PREDICTION_SCHEDULER_ENABLED=false pour qu'aucun
+# test n'en démarre un réel.
+DEFAULT_SCHEDULER_ENABLED = True
+DEFAULT_FORECAST_INTERVAL_MINUTES = 60
+DEFAULT_FORECAST_HOURS = 48
+
 CHAMPION_ALIAS = "champion"
 CHALLENGER_ALIAS = "challenger"
 
@@ -22,6 +30,12 @@ class PredictionSettings:
     min_improvement_vs_champion: float
     drift_threshold: float
     min_new_rows: int
+    # Valeurs par défaut : ajoutés après coup, gardent tous les appels
+    # existants de `PredictionSettings(...)` (tests inclus) valides sans
+    # modification.
+    scheduler_enabled: bool = DEFAULT_SCHEDULER_ENABLED
+    forecast_interval_minutes: int = DEFAULT_FORECAST_INTERVAL_MINUTES
+    forecast_hours: int = DEFAULT_FORECAST_HOURS
 
 
 def _float_env(name: str, default: float) -> float:
@@ -32,6 +46,13 @@ def _float_env(name: str, default: float) -> float:
 def _int_env(name: str, default: int) -> int:
     value = os.environ.get(name)
     return default if value is None or value == "" else int(value)
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def get_settings() -> PredictionSettings:
@@ -49,4 +70,9 @@ def get_settings() -> PredictionSettings:
         ),
         drift_threshold=_float_env("DRIFT_THRESHOLD", DEFAULT_DRIFT_THRESHOLD),
         min_new_rows=_int_env("MIN_NEW_ROWS", DEFAULT_MIN_NEW_ROWS),
+        scheduler_enabled=_bool_env("PREDICTION_SCHEDULER_ENABLED", DEFAULT_SCHEDULER_ENABLED),
+        forecast_interval_minutes=_int_env(
+            "PREDICTION_FORECAST_INTERVAL_MINUTES", DEFAULT_FORECAST_INTERVAL_MINUTES
+        ),
+        forecast_hours=_int_env("PREDICTION_FORECAST_HOURS", DEFAULT_FORECAST_HOURS),
     )

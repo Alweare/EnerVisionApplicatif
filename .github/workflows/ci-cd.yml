@@ -58,6 +58,9 @@ jobs:
             backend/core: 'backend/core/**'
             backend/workeringestion: 'backend/workeringestion/**'
             frontend: 'frontend/**'
+            mlflow: 'mlflow/**'
+            db: 'db/**'
+
 
       - name: Build service matrix
         id: matrix
@@ -72,8 +75,13 @@ jobs:
           # non plus dans cette liste : Keycloak est géré hors de ce repo,
           # jamais redéployé automatiquement (voir deploy.sh, qui le rejette).
           ALL_SERVICES: >-
-            ["backend/etl","backend/prediction",
-            "backend/core","backend/workeringestion","frontend"]
+            ["backend/etl",
+             "backend/prediction",
+             "backend/core",
+             "backend/workeringestion",
+             "frontend",
+             "mlflow",
+             "db"]
           DEPLOY_ALL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           set -euo pipefail
@@ -86,7 +94,11 @@ jobs:
 
           SERVICES=$(jq -c '
             [ .[] | {
-                name: (split("/") | last),
+                name: (
+                  if . == "db" then "migration"
+                  else (split("/") | last)
+                  end
+                ),
                 dir: .,
                 root: (split("/") | first),
                 context: (

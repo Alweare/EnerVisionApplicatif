@@ -1,4 +1,5 @@
 services:
+
   postgres:
     networks:
       - enervision_network
@@ -54,9 +55,6 @@ services:
     volumes:
       - /opt/enervisionG3/data/mlflow-artifacts:/mlflow-artifacts
     healthcheck:
-      # curl/wget ne sont pas garantis présents dans l'image mlflow officielle :
-      # on vérifie /health avec le Python déjà embarqué dans l'image, sans
-      # dépendance supplémentaire.
       test:
         [
           "CMD",

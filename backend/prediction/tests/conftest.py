@@ -14,6 +14,10 @@ os.environ.setdefault("POSTGRES_APP_USER", "tests")
 os.environ.setdefault("POSTGRES_APP_PWD", "tests")
 os.environ.setdefault("DVC_ROOT", str(Path(__file__).resolve().parents[3]))
 
+# Le scheduler de forecast est activé par défaut en production (config.py) :
+# jamais pendant les tests, qu'un test déclenche ou non le lifespan FastAPI.
+os.environ.setdefault("PREDICTION_SCHEDULER_ENABLED", "false")
+
 
 @pytest.fixture(autouse=True)
 def _no_stray_mlruns_dir():

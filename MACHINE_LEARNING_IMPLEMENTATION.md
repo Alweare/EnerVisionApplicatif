@@ -610,6 +610,140 @@ existant suffisait.
 
 ---
 
+## Scheduled forecasting
+
+### Pourquoi ce scheduler existe
+
+`GET /api/v1/sites/{site_id}/forecast` ne produit une prévision que si
+quelqu'un l'appelle. Pour que la courbe T+1h..T+48h soit **déjà disponible**
+en base (`ener.prediction`) sans dépendre d'un appel HTTP externe — pour un
+tableau de bord qui lit directement la table, ou pour amorcer l'historique
+utilisé par la comparaison "performance réelle" (§Performance réelle par
+horizon) — un job périodique génère et persiste ce forecast pour chaque site
+actif, tout seul, en tâche de fond du service `prediction`.
+
+**Ce scheduler ne fait qu'un seul travail : déclencher, à intervalle
+régulier, exactement ce que fait déjà l'API.** Toute la logique (chargement
+du champion MLflow, construction des features, prédiction multi-output,
+persistance) reste dans `inference/prediction_service.py::PredictionService.forecast`
+et `inference/feature_builder.py` — rien n'est dupliqué :
+
+```
+scheduler/scheduler.py (APScheduler, AsyncIOScheduler)
+        │ déclenche toutes les PREDICTION_FORECAST_INTERVAL_MINUTES minutes
+        ▼
+scheduler/forecast_job.py::run_forecast_job(prediction_service, hours)
+        │ 1. site_ids = repository/site_repository.py::get_active_site_ids()
+        │ 2. pour chaque site_id (erreur sur un site -> loguée, suivant quand même) :
+        ▼
+inference/prediction_service.py::PredictionService.forecast(site_id, hours)
+        │ 3. charge le champion MLflow (alias `champion`, ChampionModelCache)
+        │ 4. construit les features (inference/feature_builder.py::build_latest_features)
+        │ 5. prédit les 48 horizons en un seul appel model.predict(X)
+        ▼
+repository/prediction_repository.py::record_predictions(...)
+        │ 6. persiste les points dans ener.prediction (horizon_hours par ligne)
+```
+
+Le scheduler n'importe ni MLflow, ni les repositories de mesures/features, ni
+la table `ener.prediction` directement — seulement `PredictionService` (pour
+le forecast) et `site_repository` (pour la liste des sites).
+
+### Intégration FastAPI (lifespan)
+
+Démarré/arrêté depuis le `lifespan` de `api/app.py`, pas au niveau module :
+`scheduler/scheduler.py::create_scheduler()` construit un `AsyncIOScheduler`
+configuré mais **ne l'appelle jamais `.start()` elle-même** — c'est le
+lifespan qui décide de démarrer (`app.state.scheduler.start()` à l'entrée) et
+d'arrêter proprement (`.shutdown(wait=False)` à la sortie, y compris si
+l'application s'arrête sur erreur). Importer `prediction.api.app` ou
+`prediction.scheduler.scheduler` ne démarre jamais de scheduler par
+effet de bord. L'état est porté par `app.state.scheduler` (pas de variable
+globale module-level mutable).
+
+### Fréquence et configuration
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `PREDICTION_SCHEDULER_ENABLED` | `true` | Active/désactive le scheduler. `false` (ou vide) dans `tests/conftest.py` : jamais de vrai scheduler pendant les tests, quel que soit l'environnement d'exécution. |
+| `PREDICTION_FORECAST_INTERVAL_MINUTES` | `60` | Intervalle entre deux exécutions du job de forecast. |
+| `PREDICTION_FORECAST_HOURS` | `48` | Horizon demandé à chaque exécution (doit rester ≤ `MAX_HORIZON_HOURS`, actuellement 48). |
+
+Désactivation : `PREDICTION_SCHEDULER_ENABLED=false` dans `.env` (ou la
+variable d'environnement du conteneur) — `create_scheduler()` renvoie alors
+`None`, le lifespan ne démarre rien.
+
+### Concurrence et misfire
+
+- **Pas de chevauchement** : le job est ajouté avec `max_instances=1` — si une
+  exécution dépasse l'intervalle configuré, le déclenchement suivant est
+  ignoré plutôt que lancé en parallèle sur les mêmes sites.
+- **`coalesce=True`** : si le process était indisponible (redémarrage, charge)
+  au moment d'un ou plusieurs déclenchements manqués, un seul rattrapage a
+  lieu au retour — jamais une rafale de runs en retard.
+- **`misfire_grace_time=300`** (5 min) : passé ce délai après l'heure prévue,
+  l'occurrence manquée est abandonnée plutôt que lancée tardivement sur un
+  ancrage de données obsolète. Choix MVP raisonnable pour un job horaire ;
+  à ajuster si l'intervalle configuré change beaucoup.
+
+### Gestion des erreurs
+
+Une erreur sur un site (champion indisponible, historique insuffisant, panne
+Postgres ponctuelle, etc.) est capturée, loguée avec le `site_id` concerné
+(`event=scheduled_forecast_job_site_failed`), et n'interrompt jamais le
+traitement des sites suivants. Le job logue son démarrage
+(`scheduled_forecast_job_started`, nombre de sites) et sa fin
+(`scheduled_forecast_job_finished`, succès/échecs/durée) — jamais de secret
+dans ces logs. Une exception imprévue à l'intérieur du job ne fait pas
+planter le scheduler : APScheduler isole chaque exécution.
+
+### Forecast ≠ réentraînement
+
+**Ce job ne déclenche jamais d'entraînement.** Il appelle uniquement
+`PredictionService.forecast(...)`, qui charge le champion déjà promu — il ne
+touche ni à `training/pipeline.py`, ni à `retrain/orchestrator.py::train_if_needed`,
+ni aux règles de promotion/baseline/drift (§Réentraînement, inchangées). Le
+réentraînement conditionnel reste exclusivement déclenché par
+`python -m prediction.main train-if-needed` (cron/systemd, §Automatisation),
+un mécanisme totalement indépendant de ce scheduler.
+
+Si un job de **vérification du réentraînement** devait un jour être ajouté au
+même scheduler embarqué, il faudrait l'enregistrer comme un `add_job(...)`
+séparé (son propre `id`, son propre intervalle) dans `scheduler/scheduler.py`
+— jamais fusionné avec `run_forecast_job` : deux responsabilités, deux jobs.
+
+### Prometheus
+
+`observability/ml_metrics.py::observe_scheduled_forecast_job(...)`, appelée
+une fois par exécution (jamais par site — cardinalité) :
+
+| Métrique | Type | Rôle |
+|---|---|---|
+| `scheduled_forecast_job_runs_total` | Counter | Nombre d'exécutions du job |
+| `scheduled_forecast_job_sites_total{result}` | Counter | Sites traités, `result=success|failure` |
+| `scheduled_forecast_job_duration_seconds` | Histogram | Durée totale d'une exécution |
+| `scheduled_forecast_job_last_success_timestamp` | Gauge | Timestamp Unix de la dernière exécution sans erreur inattendue au niveau job |
+
+### Limite connue : plusieurs instances/replicas
+
+**Ce scheduler embarqué dans FastAPI est un choix MVP valable tant qu'une
+seule instance du service `prediction` tourne.** Si le service est un jour
+répliqué (plusieurs replicas/workers derrière un load balancer), **chaque
+instance démarrerait son propre scheduler** et génèrerait ses propres
+forecasts en parallèle — doublons dans `ener.prediction`, appels MLflow
+redondants, aucune coordination entre instances. `max_instances=1` protège
+contre le chevauchement *au sein d'un même process*, pas entre processus
+différents.
+
+Ce n'est **pas** résolu ici volontairement (hors périmètre MVP) : une vraie
+solution nécessiterait soit un verrou distribué (ex. lock Postgres via
+`pg_advisory_lock`, Redis), soit de sortir le scheduling de l'API vers un
+unique job externe (cron/systemd comme `train-if-needed`, ou un scheduler
+dédié). À traiter explicitement avant tout déploiement à plusieurs replicas
+du service `prediction`.
+
+---
+
 ## MLflow
 
 **Version installée : MLflow 3.16.0** (`mlflow/Dockerfile: FROM ghcr.io/mlflow/mlflow:v3.16.0`,
