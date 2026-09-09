@@ -1,0 +1,305 @@
+name: CI/CD - Build & Deploy All
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: enervisiong3
+
+
+# ============================================================
+# Évite deux déploiements simultanés
+# ============================================================
+concurrency:
+  group: enervision-production
+  cancel-in-progress: false
+
+
+jobs:
+
+  # ============================================================
+  # 1 - TESTS
+  # ============================================================
+  test:
+    name: Tests
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
+
+      # --------------------------------------------------------
+      # ETL
+      # --------------------------------------------------------
+      - name: Test ETL
+        if: ${{ hashFiles('backend/etl/tests/**/*.py') != '' }}
+        run: |
+          if [ -f backend/etl/requirements.txt ]; then
+            pip install -r backend/etl/requirements.txt
+          fi
+
+          PYTHONPATH="$PWD/backend:$PWD" \
+          pytest backend/etl/tests \
+            --cov=backend/etl \
+            --cov-report=term-missing
+
+      # --------------------------------------------------------
+      # Prediction
+      # --------------------------------------------------------
+      - name: Test Prediction
+        if: ${{ hashFiles('backend/prediction/tests/**/*.py') != '' }}
+        run: |
+          if [ -f backend/prediction/requirements.txt ]; then
+            pip install -r backend/prediction/requirements.txt
+          fi
+
+          PYTHONPATH="$PWD/backend:$PWD" \
+          pytest backend/prediction/tests \
+            --cov=backend/prediction \
+            --cov-report=term-missing
+
+      # --------------------------------------------------------
+      # Worker ingestion
+      # --------------------------------------------------------
+      - name: Test Worker Ingestion
+        if: ${{ hashFiles('backend/workeringestion/tests/**/*.py') != '' }}
+        run: |
+          if [ -f backend/workeringestion/requirements.txt ]; then
+            pip install -r backend/workeringestion/requirements.txt
+          fi
+
+          PYTHONPATH="$PWD/backend:$PWD" \
+          pytest backend/workeringestion/tests \
+            --cov=backend/workeringestion \
+            --cov-report=term-missing
+
+
+  # ============================================================
+  # 2 - BUILD + PUSH DE TOUTES LES IMAGES
+  # ============================================================
+  build:
+    name: Build - ${{ matrix.service.name }}
+
+    needs:
+      - test
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        service:
+
+          # Backend ETL
+          - name: etl
+            context: .
+            dockerfile: backend/etl/Dockerfile
+
+          # Backend Prediction
+          - name: prediction
+            context: .
+            dockerfile: backend/prediction/Dockerfile
+
+          # Core
+          - name: core
+            context: .
+            dockerfile: backend/core/Dockerfile
+
+          # Worker ingestion
+          - name: workeringestion
+            context: .
+            dockerfile: backend/workeringestion/Dockerfile
+
+          # Frontend
+          - name: frontend
+            context: frontend
+            dockerfile: frontend/Dockerfile
+
+          # MLflow
+          - name: mlflow
+            context: mlflow
+            dockerfile: mlflow/Dockerfile
+
+          # Migration PostgreSQL / Pyway
+          - name: migration
+            context: build-postgres/db
+            dockerfile: build-postgres/db/Dockerfile
+
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+
+      - name: Login to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+
+          # PR = build seulement
+          # main = build + push
+          push: ${{ github.event_name == 'push' }}
+
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}:latest
+
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
+
+
+  # ============================================================
+  # 3 - DEPLOY
+  # ============================================================
+  deploy:
+    name: Deploy production
+
+    needs:
+      - build
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    runs-on:
+      - self-hosted
+      - linux
+
+    timeout-minutes: 30
+
+    environment:
+      name: production
+
+    permissions:
+      contents: read
+      packages: read
+
+
+    steps:
+
+      # --------------------------------------------------------
+      # Le runner récupère la version exacte du repository
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+
+      # --------------------------------------------------------
+      # Connexion GHCR
+      # --------------------------------------------------------
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+
+      # --------------------------------------------------------
+      # Synchronisation du compose
+      #
+      # Le .env du serveur n'est PAS remplacé.
+      # --------------------------------------------------------
+      - name: Synchronize Docker Compose
+        run: |
+          set -euo pipefail
+
+          DEPLOY_DIR="/opt/enervisionG3"
+
+          mkdir -p "$DEPLOY_DIR"
+
+          if [ -f compose.yml ]; then
+            cp compose.yml "$DEPLOY_DIR/compose.yml"
+          elif [ -f compose.yaml ]; then
+            cp compose.yaml "$DEPLOY_DIR/compose.yaml"
+          elif [ -f docker-compose.yml ]; then
+            cp docker-compose.yml "$DEPLOY_DIR/docker-compose.yml"
+          else
+            echo "::error::Aucun fichier Docker Compose trouvé."
+            exit 1
+          fi
+
+
+      # --------------------------------------------------------
+      # Déploiement complet
+      # --------------------------------------------------------
+      - name: Deploy all containers
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
+
+        run: |
+          set -euo pipefail
+
+          cd /opt/enervisionG3
+
+          echo "========================================"
+          echo "Deploying EnerVision"
+          echo "Commit: $IMAGE_TAG"
+          echo "========================================"
+
+          # Récupération de toutes les nouvelles images
+          docker compose pull
+
+          # Recréation des conteneurs avec les nouvelles images
+          docker compose up \
+            -d \
+            --remove-orphans \
+            --no-build
+
+          echo
+          echo "========================================"
+          echo "Containers"
+          echo "========================================"
+
+          docker compose ps
+
+
+      # --------------------------------------------------------
+      # Nettoyage facultatif
+      # --------------------------------------------------------
+      - name: Cleanup old Docker images
+        run: |
+          docker image prune -f
