@@ -17,10 +17,14 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
-      "redirectUris": ["http://localhost:8501/oauth2callback"],
-      "webOrigins": ["http://localhost:8501"],
+      "redirectUris": [
+        "https://enervisiong3.prod/oauth2callback"
+      ],
+      "webOrigins": [
+        "https://enervisiong3.prod"
+      ],
       "attributes": {
-        "post.logout.redirect.uris": "http://localhost:8501/*"
+        "post.logout.redirect.uris": "https://enervisiong3.prod/*"
       },
       "protocolMappers": [
         {
