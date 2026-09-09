@@ -40,6 +40,25 @@ FORECAST_POINTS_GENERATED_TOTAL = Counter(
     "forecast_points_generated_total", "Nombre total de points de forecast générés (toutes requêtes)"
 )
 
+# Scheduler de forecast (§Scheduled forecasting) : un run = un passage du job
+# sur tous les sites actifs. Pas de label site_id (cardinalité) -- le détail
+# par site reste dans les logs (§Gestion des erreurs).
+SCHEDULED_FORECAST_JOB_RUNS_TOTAL = Counter(
+    "scheduled_forecast_job_runs_total", "Nombre d'exécutions du job de forecast planifié"
+)
+SCHEDULED_FORECAST_JOB_SITES_TOTAL = Counter(
+    "scheduled_forecast_job_sites_total",
+    "Nombre de sites traités par le job de forecast planifié",
+    ["result"],
+)
+SCHEDULED_FORECAST_JOB_DURATION_SECONDS = Histogram(
+    "scheduled_forecast_job_duration_seconds", "Durée totale d'une exécution du job de forecast planifié"
+)
+SCHEDULED_FORECAST_JOB_LAST_SUCCESS_TIMESTAMP = Gauge(
+    "scheduled_forecast_job_last_success_timestamp",
+    "Timestamp Unix de la dernière exécution du job de forecast planifié sans erreur inattendue",
+)
+
 ML_TRAINING_RUNS_TOTAL = Gauge(
     "ml_training_runs_total", "Nombre de runs d'entraînement enregistrés dans MLflow"
 )
@@ -104,6 +123,16 @@ def observe_forecast_error(reason: str, latency_seconds: float) -> None:
     FORECAST_REQUESTS_TOTAL.labels(result="error").inc()
     FORECAST_ERRORS_TOTAL.labels(reason=reason).inc()
     FORECAST_LATENCY_SECONDS.observe(latency_seconds)
+
+
+def observe_scheduled_forecast_job(n_success: int, n_failed: int, duration_seconds: float) -> None:
+    """Appelé une fois par exécution du job planifié (jamais par site :
+    cardinalité, cf. commentaire sur les métriques ci-dessus)."""
+    SCHEDULED_FORECAST_JOB_RUNS_TOTAL.inc()
+    SCHEDULED_FORECAST_JOB_SITES_TOTAL.labels(result="success").inc(n_success)
+    SCHEDULED_FORECAST_JOB_SITES_TOTAL.labels(result="failure").inc(n_failed)
+    SCHEDULED_FORECAST_JOB_DURATION_SECONDS.observe(duration_seconds)
+    SCHEDULED_FORECAST_JOB_LAST_SUCCESS_TIMESTAMP.set_to_current_time()
 
 
 def refresh_ml_metrics(settings: PredictionSettings | None = None) -> None:
