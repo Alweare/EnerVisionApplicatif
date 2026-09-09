@@ -1,7 +1,11 @@
 import streamlit as st
+
+from authentification.auth import require_authentication
 from services.site_service import get_my_sites
 from components.site_card import render_site_card
 from services.api_client import BackendUnavailableError
+
+require_authentication()
 
 st.title("Mes sites")
 

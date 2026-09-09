@@ -77,6 +77,18 @@ def test_render_user_menu_logs_out_on_button_click():
     st.logout.assert_called_once()
 
 
+def test_render_user_menu_is_a_header_popover_not_sidebar():
+    st = MagicMock()
+    st.user.name = "Jane Doe"
+    st.button.return_value = False
+
+    with patch.object(auth, "st", st):
+        auth.render_user_menu()
+
+    st.popover.assert_called_once()
+    st.sidebar.assert_not_called()
+
+
 def test_get_access_token_returns_token_when_exposed():
     st = MagicMock()
     st.user.tokens = {"access": "secret-token-value"}

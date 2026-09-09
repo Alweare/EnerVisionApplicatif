@@ -1,5 +1,9 @@
 import streamlit as st
 
+from authentification.auth import require_authentication
+
+require_authentication()
+
 st.title("EnerVision — Dashboard")
 
 from services.measurement_service import get_current_measurement, get_measurement_history
