@@ -2,7 +2,7 @@ import os
 
 import requests
 
-BACKEND_URL = os.environ["BACKEND_URL"]
+CORE_URL = os.environ["CORE_URL"]
 
 
 def get_site_prediction(site_id: str, history_hours: int = 24) -> dict | None:
@@ -13,7 +13,7 @@ def get_site_prediction(site_id: str, history_hours: int = 24) -> dict | None:
     encore disponible (503).
     """
     response = requests.get(
-        f"{BACKEND_URL}/api/v1/backend/sites/{site_id}/predictions",
+        f"{CORE_URL}/api/v1/backend/sites/{site_id}/predictions",
         params={"history_hours": history_hours},
         timeout=10,
     )

@@ -40,7 +40,7 @@ class PredictionRepository:
                 )
             )
 
-        return PredictionRead.model_validate(row) if row is not None else None
+        return [PredictionRead.model_validate(row) for row in rows]
 
     def list_upcoming_for_user(
         self, user_id: UUID, now: datetime
@@ -55,4 +55,3 @@ class PredictionRepository:
             .order_by(Prediction.site_id, Prediction.predicted_for)
             .all()
         )
-        return [PredictionRead.model_validate(row) for row in rows]

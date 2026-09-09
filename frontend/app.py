@@ -32,10 +32,9 @@ dashboard_page = st.Page("pages/dashboard.py", title="Dashboard", default=True)
 sites_page = st.Page("pages/sites.py", title="Sites")
 recommandations_page = st.Page("pages/recommandations.py", title="Recommandations")
 alertes_page = st.Page("pages/alertes.py", title="Alertes")
-
-dashboard_page = st.Page("pages/Dashboard.py", title="Dashboard", default=True)
-alertes_page = st.Page("pages/Alertes.py", title="Alertes")
 predictions_page = st.Page("pages/Predictions.py", title="Prédictions")
 
-pg = st.navigation([dashboard_page, alertes_page, predictions_page])
+pg = st.navigation(
+    [dashboard_page, sites_page, recommandations_page, alertes_page, predictions_page]
+)
 pg.run()

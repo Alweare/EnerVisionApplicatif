@@ -3,9 +3,7 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from services.prediction_service import get_site_prediction
-
-BACKEND_URL = "http://backend:8000"
+from services.prediction_service import CORE_URL, get_site_prediction
 
 
 def _mock_response(json_data=None, *, ok=True, status_code=200):
@@ -32,7 +30,7 @@ def test_get_site_prediction_calls_expected_url_and_returns_json(mock_get):
     result = get_site_prediction("SITE001")
 
     mock_get.assert_called_once_with(
-        f"{BACKEND_URL}/api/v1/backend/sites/SITE001/predictions",
+        f"{CORE_URL}/api/v1/backend/sites/SITE001/predictions",
         params={"history_hours": 24},
         timeout=10,
     )
@@ -46,7 +44,7 @@ def test_get_site_prediction_forwards_custom_history_hours(mock_get):
     get_site_prediction("SITE001", history_hours=48)
 
     mock_get.assert_called_once_with(
-        f"{BACKEND_URL}/api/v1/backend/sites/SITE001/predictions",
+        f"{CORE_URL}/api/v1/backend/sites/SITE001/predictions",
         params={"history_hours": 48},
         timeout=10,
     )

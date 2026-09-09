@@ -22,6 +22,11 @@ class SiteWithCurrentRead(SiteRead):
     """`SiteRead` enrichi de la dernière mesure connue du site."""
     current_consumption_kw: float | None = Field(default=None, examples=[104.47])
     data_quality: str | None = Field(default=None, examples=["good"])
+    measurement_date: datetime | None = Field(
+        default=None,
+        description="Horodatage de la dernière mesure connue du site.",
+        examples=["2026-09-08T13:00:00"],
+    )
 
 
 class PredictionRead(BaseModel):
