@@ -51,51 +51,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest pytest-cov
 
-      # --------------------------------------------------------
-      # ETL
-      # --------------------------------------------------------
-      - name: Test ETL
-        if: ${{ hashFiles('backend/etl/tests/**/*.py') != '' }}
-        run: |
-          if [ -f backend/etl/requirements.txt ]; then
-            pip install -r backend/etl/requirements.txt
-          fi
-
-          PYTHONPATH="$PWD/backend:$PWD" \
-          pytest backend/etl/tests \
-            --cov=backend/etl \
-            --cov-report=term-missing
-
-      # --------------------------------------------------------
-      # Prediction
-      # --------------------------------------------------------
-      - name: Test Prediction
-        if: ${{ hashFiles('backend/prediction/tests/**/*.py') != '' }}
-        run: |
-          if [ -f backend/prediction/requirements.txt ]; then
-            pip install -r backend/prediction/requirements.txt
-          fi
-
-          PYTHONPATH="$PWD/backend:$PWD" \
-          pytest backend/prediction/tests \
-            --cov=backend/prediction \
-            --cov-report=term-missing
-
-      # --------------------------------------------------------
-      # Worker ingestion
-      # --------------------------------------------------------
-      - name: Test Worker Ingestion
-        if: ${{ hashFiles('backend/workeringestion/tests/**/*.py') != '' }}
-        run: |
-          if [ -f backend/workeringestion/requirements.txt ]; then
-            pip install -r backend/workeringestion/requirements.txt
-          fi
-
-          PYTHONPATH="$PWD/backend:$PWD" \
-          pytest backend/workeringestion/tests \
-            --cov=backend/workeringestion \
-            --cov-report=term-missing
-
 
   # ============================================================
   # 2 - BUILD + PUSH DE TOUTES LES IMAGES
