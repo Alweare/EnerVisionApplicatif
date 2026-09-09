@@ -12,7 +12,7 @@ services:
     profiles: ["prod"]
     build:
       context: .
-      dockerfile: authentication/Dockerfile
+      dockerfile: backend/authentication/Dockerfile
     networks:
       - enervision_network
     ports:
@@ -135,22 +135,29 @@ services:
       context: .
       dockerfile: backend/prediction/Dockerfile
 
+    ports:
+      - "8003:8000"
+
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_APP_USER: ${POSTGRES_APP_USER}
       POSTGRES_APP_PWD: ${POSTGRES_APP_PWD}
-      DVC_ROOT: /backend
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+      MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-consumption-prediction}
+      MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME:-consumption-predictor}
+      MIN_IMPROVEMENT_VS_BASELINE: ${MIN_IMPROVEMENT_VS_BASELINE:-0.05}
+      MIN_IMPROVEMENT_VS_CHAMPION: ${MIN_IMPROVEMENT_VS_CHAMPION:-0.01}
+      DRIFT_THRESHOLD: ${DRIFT_THRESHOLD:-0.2}
+      MIN_NEW_ROWS: ${MIN_NEW_ROWS:-1440}
 
     volumes:
       - ./backend/prediction:/backend/prediction
       - ./backend/shared:/backend/shared
-      - ./.dvc:/backend/.dvc
-      - ./data:/backend/data
-
-    command: python -m prediction.main
 
     depends_on:
       postgres:
+        condition: service_healthy
+      mlflow:
         condition: service_healthy
 
 volumes:

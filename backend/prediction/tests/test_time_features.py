@@ -12,11 +12,13 @@ import pandas as pd
 import pytest
 
 from prediction.features.time_features import (
+    ROWS_PER_DAY,
     ROWS_PER_HOUR,
+    ROWS_PER_WEEK,
     add_time_features,
 )
 
-START = datetime(2026, 1, 1)
+START = datetime(2026, 1, 1)  # jeudi
 
 
 def _site_frame(site_id, consumptions, null_reasons=None):
@@ -141,3 +143,106 @@ def test_tainted_consumption_is_neutralized_but_row_is_kept():
 
     # La ligne 6 (température uniquement) garde sa consommation réelle.
     assert out["lag_1h"].iloc[6 + ROWS_PER_HOUR] == 100.0
+
+
+# --- Forecast multi-horizon : lag_168h / rolling_mean_168h -----------------
+
+def test_lag_168h_is_null_when_history_is_insufficient():
+    n = ROWS_PER_WEEK - 10  # juste avant 7 jours d'historique
+    df = _site_frame("SITE_A", [100 + i for i in range(n)])
+
+    out = add_time_features(df)
+
+    assert out["lag_168h"].isna().all()
+
+
+def test_lag_168h_matches_value_one_week_earlier_per_site():
+    n = ROWS_PER_WEEK + 5
+    site_a = _site_frame("SITE_A", [100 + i for i in range(n)])
+    site_b = _site_frame("SITE_B", [500 + i for i in range(n)])
+    df = pd.concat([site_b, site_a]).sample(frac=1, random_state=0)
+
+    out = add_time_features(df)
+    a = out[out.site_id == "SITE_A"].reset_index(drop=True)
+
+    assert a["lag_168h"].iloc[ROWS_PER_WEEK] == 100.0
+    # Aucune fuite entre sites.
+    assert (a["lag_168h"].dropna() < 500.0).all()
+
+
+def test_rolling_mean_168h_shifts_before_rolling_and_excludes_current_row():
+    baseline = [10.0] * 200
+    spike_index = 200
+    consumptions = baseline + [10_000.0] + [10.0] * 20
+    df = _site_frame("SITE_A", consumptions)
+
+    out = add_time_features(df)
+
+    assert out["rolling_mean_168h"].iloc[spike_index] == pytest.approx(10.0)
+
+
+# --- Forecast multi-horizon : features calendaires --------------------------
+
+def test_calendar_features_are_deterministic_from_measurement_date():
+    # START = 2026-01-01 00:00, un jeudi.
+    n = 4 * ROWS_PER_DAY
+    df = _site_frame("SITE_A", [1.0] * n)
+
+    out = add_time_features(df)
+
+    first_row = out.iloc[0]
+    assert first_row["hour_of_day"] == 0
+    assert first_row["day_of_week"] == 3  # jeudi (Monday=0)
+    assert first_row["is_weekend"] == 0
+
+    # 3 jours plus tard (dimanche) à 14h -> ligne à l'index 3*1440 + 14*60.
+    sunday_14h_index = 3 * ROWS_PER_DAY + 14 * ROWS_PER_HOUR
+    sunday_row = out.iloc[sunday_14h_index]
+    assert sunday_row["hour_of_day"] == 14
+    assert sunday_row["day_of_week"] == 6  # dimanche
+    assert sunday_row["is_weekend"] == 1
+
+
+def test_calendar_features_never_depend_on_consumption_value():
+    n = 500
+    rng = np.random.default_rng(0)
+    df = _site_frame("SITE_A", list(100 + rng.normal(0, 5, n)))
+
+    reference = add_time_features(df)
+
+    poisoned = df.copy()
+    poisoned.loc[100, "consumption_kw"] = 99_999.0
+    poisoned_out = add_time_features(poisoned)
+
+    for column in (
+        "hour_of_day",
+        "day_of_week",
+        "is_weekend",
+        "hour_sin",
+        "hour_cos",
+        "day_sin",
+        "day_cos",
+    ):
+        pd.testing.assert_series_equal(
+            reference[column], poisoned_out[column], check_names=False
+        )
+
+
+def test_cyclic_calendar_encoding_matches_hour_and_day_of_week():
+    # START = 2026-01-01 00:00, un jeudi (day_of_week=3).
+    df = _site_frame("SITE_A", [1.0] * 10)
+
+    out = add_time_features(df)
+    row = out.iloc[0]
+
+    assert row["hour_of_day"] == 0
+    assert row["hour_sin"] == pytest.approx(0.0, abs=1e-9)
+    assert row["hour_cos"] == pytest.approx(1.0)
+
+    assert row["day_of_week"] == 3
+    assert row["day_sin"] == pytest.approx(np.sin(2 * np.pi * 3 / 7))
+    assert row["day_cos"] == pytest.approx(np.cos(2 * np.pi * 3 / 7))
+
+    # sin^2 + cos^2 == 1 pour tout encodage cyclique valide.
+    assert row["hour_sin"] ** 2 + row["hour_cos"] ** 2 == pytest.approx(1.0)
+    assert row["day_sin"] ** 2 + row["day_cos"] ** 2 == pytest.approx(1.0)

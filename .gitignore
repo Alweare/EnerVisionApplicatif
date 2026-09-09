@@ -51,6 +51,10 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# MLflow local tracking/artifacts (e.g. from tests without an explicit
+# artifact_location, or ad-hoc local runs) -- never committed.
+mlruns/
+
 # Translations
 *.mo
 *.pot
@@ -230,9 +234,3 @@ __marimo__/
 
 # Secrets Docker (docker-compose.yaml -> secrets:) — jamais commités
 /secrets/
-
-# Dataset versionné par DVC : le CSV est ignoré via data/.gitignore généré par
-# `dvc add` ; seuls data/training_dataset.csv.dvc et data/.gitignore vont dans git.
-
-# MLflow : runs créés en lançant les tests en local
-/mlruns/

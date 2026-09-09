@@ -1,6 +1,12 @@
 # Module `prediction` — Prédiction de pics de consommation
 
-Suivi d'implémentation. À lire avant de reprendre EN-39 (entraînement).
+Suivi d'implémentation historique (EN-37/EN-263 : feature engineering,
+constitution du jeu d'entraînement). Le modèle a depuis évolué vers un
+forecast multi-horizon (T+1h à T+168h) — voir
+[`MACHINE_LEARNING_IMPLEMENTATION.md`](../../MACHINE_LEARNING_IMPLEMENTATION.md#forecast-multi-horizon-t1h--t7j)
+à la racine du dépôt pour la documentation à jour (features, baseline,
+promotion, API, MLflow). Ce fichier reste tel quel comme trace du
+raisonnement initial (EN-37/EN-263).
 
 ---
 

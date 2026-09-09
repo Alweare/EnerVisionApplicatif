@@ -1,10 +1,3 @@
-# Override LOCAL uniquement : hot-reload, bind mounts du code source, et
-# réseau Docker auto-géré (pas besoin de `docker network create` sur un
-# clone neuf). Keycloak et Traefik locaux restent dans leurs propres
-# fichiers (docker-compose-keycloak.yaml, docker-compose-traefik.yml),
-# combinés ensemble — voir README ou `.\docker.ps1 local up`.
-#
-# Ne JAMAIS combiner avec docker-compose-prod.yaml.
 services:
   core:
     command: uvicorn core.main:app --host 0.0.0.0 --port 8000 --reload
@@ -31,4 +24,5 @@ services:
 
 networks:
   enervision_network:
-    external: false
+    external: true
+    name: enervision_network
