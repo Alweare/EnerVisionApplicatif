@@ -1,19 +1,21 @@
-import logging
 import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-logging.basicConfig(
-    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+from shared.logging_setup import setup_logging
 
+setup_logging("core")
+
+from core.api.controller.alert import router as alert_router
 from core.api.controller.health import router as health_router
 from core.api.controller.me import router as me_router
 from core.api.controller.measurement import router as measurement_router
+from core.api.controller.recommendation import router as recommendation_router
+from core.api.controller.prediction import router as prediction_router
 from core.api.controller.site import router as site_router
+from core.api.middleware.request_logging import RequestLoggingMiddleware
 from core.api.routes import router as auth_router
 
 app = FastAPI(
@@ -29,6 +31,8 @@ cors_allowed_origins = [
     if origin.strip()
 ]
 
+app.add_middleware(RequestLoggingMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_allowed_origins,
@@ -40,8 +44,11 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(site_router)
 app.include_router(measurement_router)
+app.include_router(alert_router)
+app.include_router(prediction_router)
 app.include_router(auth_router)
 app.include_router(me_router)
+app.include_router(recommendation_router)
 
 # Métriques Prometheus (requêtes, latence, codes de statut par endpoint),
 # exposées sur /metrics — cf. EN-280.

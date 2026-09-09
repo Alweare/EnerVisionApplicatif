@@ -5,7 +5,12 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from core.api.schemas import MeasurementRead, SiteRead, SiteWithCurrentRead
+from core.api.schemas import (
+    AlertRead,
+    MeasurementRead,
+    SiteRead,
+    SiteWithCurrentRead,
+)
 from core.api.service.measurement_service import (
     MeasurementNotFoundError,
     SiteNotFoundError,
@@ -34,6 +39,13 @@ def _override_get_db():
 def site_service(monkeypatch):
     fake = Mock()
     monkeypatch.setattr("core.api.controller.site.SiteService", lambda db: fake)
+    return fake
+
+
+@pytest.fixture
+def alert_service(monkeypatch):
+    fake = Mock()
+    monkeypatch.setattr("core.api.controller.alert.AlertService", lambda db: fake)
     return fake
 
 
@@ -252,3 +264,131 @@ def test_get_site_current_measurement_maps_known_errors_to_404(
     response = client.get("/api/v1/backend/sites/SITE001/current")
 
     assert response.status_code == 404
+
+
+# --- GET /api/v1/backend/alerts ------------------------------------------
+
+def _alert(site_id: str = "SITE001", alert_id: str = "ALR-SITE001-1") -> AlertRead:
+    return AlertRead(
+        alert_id=alert_id,
+        site_id=site_id,
+        severity="critical",
+        type="spike",
+        message="Pic de consommation détecté",
+        value=812.5,
+        threshold=720.0,
+        created_at=datetime(2026, 9, 7, 15, 18, 29),
+    )
+
+
+def test_list_alerts_returns_200_with_rows(alert_service):
+    alert_service.list_alerts.return_value = [
+        _alert("SITE001"), _alert("SITE002", "ALR-SITE002-1")
+    ]
+
+    response = client.get("/api/v1/backend/alerts")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert body[0]["alert_id"] == "ALR-SITE001-1"
+    assert body[1]["site_id"] == "SITE002"
+
+
+def test_list_alerts_uses_default_pagination_and_no_site_filter(alert_service):
+    alert_service.list_alerts.return_value = []
+
+    client.get("/api/v1/backend/alerts")
+
+    alert_service.list_alerts.assert_called_once_with(
+        site_id=None, since=None, severities=None, limit=100, offset=0
+    )
+
+
+def test_list_alerts_forwards_the_site_filter(alert_service):
+    alert_service.list_alerts.return_value = []
+
+    client.get("/api/v1/backend/alerts?site_id=SITE002")
+
+    alert_service.list_alerts.assert_called_once_with(
+        site_id="SITE002", since=None, severities=None, limit=100, offset=0
+    )
+
+
+def test_list_alerts_forwards_pagination_params(alert_service):
+    alert_service.list_alerts.return_value = []
+
+    client.get("/api/v1/backend/alerts?limit=5&offset=20")
+
+    alert_service.list_alerts.assert_called_once_with(
+        site_id=None, since=None, severities=None, limit=5, offset=20
+    )
+
+
+def test_list_alerts_returns_404_when_site_unknown(alert_service):
+    alert_service.list_alerts.side_effect = SiteNotFoundError("SITE999")
+
+    response = client.get("/api/v1/backend/alerts?site_id=SITE999")
+
+    assert response.status_code == 404
+    assert "SITE999" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("query", ["limit=0", "limit=1001", "offset=-1", "limit=abc"])
+def test_list_alerts_rejects_invalid_pagination(alert_service, query):
+    alert_service.list_alerts.return_value = []
+
+    response = client.get(f"/api/v1/backend/alerts?{query}")
+
+    assert response.status_code == 422
+
+
+def test_list_alerts_forwards_the_since_bound(alert_service):
+    alert_service.list_alerts.return_value = []
+
+    client.get("/api/v1/backend/alerts?since=2026-08-09T00:00:00")
+
+    alert_service.list_alerts.assert_called_once_with(
+        site_id=None, since=datetime(2026, 8, 9, 0, 0), severities=None,
+        limit=100, offset=0
+    )
+
+
+def test_list_alerts_rejects_an_unparsable_since(alert_service):
+    alert_service.list_alerts.return_value = []
+
+    assert client.get("/api/v1/backend/alerts?since=pas-une-date").status_code == 422
+
+
+def test_list_alerts_forwards_a_single_severity(alert_service):
+    alert_service.list_alerts.return_value = []
+
+    client.get("/api/v1/backend/alerts?severity=critical")
+
+    alert_service.list_alerts.assert_called_once_with(
+        site_id=None, since=None, severities=["critical"], limit=100, offset=0
+    )
+
+
+def test_list_alerts_forwards_several_severities(alert_service):
+    alert_service.list_alerts.return_value = []
+
+    client.get("/api/v1/backend/alerts?severity=high&severity=critical")
+
+    alert_service.list_alerts.assert_called_once_with(
+        site_id=None,
+        since=None,
+        severities=["high", "critical"],
+        limit=100,
+        offset=0,
+    )
+
+
+def test_list_alerts_combines_site_and_severity_filters(alert_service):
+    alert_service.list_alerts.return_value = []
+
+    client.get("/api/v1/backend/alerts?site_id=SITE002&severity=low")
+
+    alert_service.list_alerts.assert_called_once_with(
+        site_id="SITE002", since=None, severities=["low"], limit=100, offset=0
+    )

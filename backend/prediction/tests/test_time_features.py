@@ -12,22 +12,27 @@ import pandas as pd
 import pytest
 
 from prediction.features.time_features import (
+    ROWS_PER_DAY,
     ROWS_PER_HOUR,
+    ROWS_PER_WEEK,
     add_time_features,
 )
 
-START = datetime(2026, 1, 1)
+START = datetime(2026, 1, 1)  # jeudi
+
+
+MINUTES_PER_ROW = 60 // ROWS_PER_HOUR  # mesures toutes les 10 min (ROWS_PER_HOUR=6)
 
 
 def _site_frame(site_id, consumptions, null_reasons=None):
-    """Construit une série d'une mesure par minute pour un site."""
+    """Construit une série d'une mesure toutes les MINUTES_PER_ROW minutes pour un site."""
     n = len(consumptions)
     if null_reasons is None:
         null_reasons = [None] * n
     return pd.DataFrame(
         {
             "site_id": site_id,
-            "measurement_date": [START + timedelta(minutes=i) for i in range(n)],
+            "measurement_date": [START + timedelta(minutes=MINUTES_PER_ROW * i) for i in range(n)],
             "consumption_kw": [float(c) for c in consumptions],
             "data_quality": ["good"] * n,
             "null_reason": null_reasons,
@@ -47,9 +52,9 @@ def test_lags_are_computed_per_site_and_never_mixed():
     out = add_time_features(df)
     b = out[out.site_id == "SITE_B"].reset_index(drop=True)
 
-    # Les 60 premières lignes de SITE_B n'ont pas d'antécédent 1 h -> NaN.
+    # Les ROWS_PER_HOUR premières lignes de SITE_B n'ont pas d'antécédent 1 h -> NaN.
     assert b["lag_1h"].iloc[:ROWS_PER_HOUR].isna().all()
-    # La 61e ligne pointe sur la 1re valeur de SITE_B (500), jamais SITE_A.
+    # La ligne suivante pointe sur la 1re valeur de SITE_B (500), jamais SITE_A.
     assert b["lag_1h"].iloc[ROWS_PER_HOUR] == 500.0
     # Aucune valeur de SITE_A (100..) n'a fui dans les lags de SITE_B.
     assert (b["lag_1h"].dropna() >= 500.0).all()
@@ -63,7 +68,7 @@ def test_lags_are_null_when_history_is_insufficient():
 
     out = add_time_features(df)
 
-    # lag_1h : NaN sur les 60 premières lignes, renseigné ensuite.
+    # lag_1h : NaN sur les ROWS_PER_HOUR premières lignes, renseigné ensuite.
     assert out["lag_1h"].iloc[:ROWS_PER_HOUR].isna().all()
     assert out["lag_1h"].iloc[ROWS_PER_HOUR:].notna().all()
     # lag_24h : jamais assez d'historique ici -> NaN partout, jamais 0.
@@ -114,9 +119,17 @@ def test_no_data_leakage_from_current_row():
     )
 
 
-# --- Prétraitement : neutralisation des consommations forward-fillées -----
+# --- Prétraitement : signalement (pas neutralisation) des consommations ---
+# --- forward-fillées --------------------------------------------------------
+#
+# Comportement actuel (évolution récente) : `consumption_kw` n'est plus mis à
+# NaN pour les lignes taintées -- il est désormais lui-même une feature
+# (`CONSUMPTION_FEATURE_COLUMNS` dans dataset.py), donc une valeur manquante
+# ferait perdre la ligne entière au dropna. À la place, `add_time_features`
+# calcule un indicateur `consumption_tainted` (0/1) à côté de la valeur brute
+# (potentiellement recopiée par le forward-fill de l'ETL), sans la neutraliser.
 
-def test_tainted_consumption_is_neutralized_but_row_is_kept():
+def test_tainted_consumption_is_flagged_but_not_neutralized():
     n = ROWS_PER_HOUR + 20
     consumptions = [100.0] * n
     null_reasons = [None] * n
@@ -134,10 +147,117 @@ def test_tainted_consumption_is_neutralized_but_row_is_kept():
     assert len(out) == n
     assert {"data_quality", "null_reason"} <= set(out.columns)
 
-    # La valeur poison de la ligne 5 ne nourrit aucun lag en aval...
-    assert np.isnan(out["lag_1h"].iloc[5 + ROWS_PER_HOUR])
-    # ... ni la moyenne glissante (qui reste à 100, pas tirée vers 99 999).
-    assert out["rolling_mean_24h"].iloc[10] == pytest.approx(100.0)
+    # La ligne 5 (network_loss, une raison "tainting") est marquée...
+    assert out["consumption_tainted"].iloc[5] == 1
+    # ... mais sa valeur brute (potentiellement recopiée) N'EST PLUS neutralisée :
+    # elle se propage telle quelle dans consumption_kw et les lags en aval.
+    assert out["consumption_kw"].iloc[5] == pytest.approx(99_999.0)
+    assert out["lag_1h"].iloc[5 + ROWS_PER_HOUR] == pytest.approx(99_999.0)
 
-    # La ligne 6 (température uniquement) garde sa consommation réelle.
+    # La ligne 6 (température uniquement, pas une raison "tainting") n'est
+    # pas marquée, et garde sa consommation réelle.
+    assert out["consumption_tainted"].iloc[6] == 0
     assert out["lag_1h"].iloc[6 + ROWS_PER_HOUR] == 100.0
+
+
+# --- Forecast multi-horizon : lag_168h / rolling_mean_168h -----------------
+
+def test_lag_168h_is_null_when_history_is_insufficient():
+    n = ROWS_PER_WEEK - 10  # juste avant 7 jours d'historique
+    df = _site_frame("SITE_A", [100 + i for i in range(n)])
+
+    out = add_time_features(df)
+
+    assert out["lag_168h"].isna().all()
+
+
+def test_lag_168h_matches_value_one_week_earlier_per_site():
+    n = ROWS_PER_WEEK + 5
+    site_a = _site_frame("SITE_A", [100 + i for i in range(n)])
+    site_b = _site_frame("SITE_B", [500 + i for i in range(n)])
+    df = pd.concat([site_b, site_a]).sample(frac=1, random_state=0)
+
+    out = add_time_features(df)
+    a = out[out.site_id == "SITE_A"].reset_index(drop=True)
+
+    assert a["lag_168h"].iloc[ROWS_PER_WEEK] == 100.0
+    # Aucune fuite entre sites.
+    assert (a["lag_168h"].dropna() < 500.0).all()
+
+
+def test_rolling_mean_168h_shifts_before_rolling_and_excludes_current_row():
+    baseline = [10.0] * 200
+    spike_index = 200
+    consumptions = baseline + [10_000.0] + [10.0] * 20
+    df = _site_frame("SITE_A", consumptions)
+
+    out = add_time_features(df)
+
+    assert out["rolling_mean_168h"].iloc[spike_index] == pytest.approx(10.0)
+
+
+# --- Forecast multi-horizon : features calendaires --------------------------
+
+def test_calendar_features_are_deterministic_from_measurement_date():
+    # START = 2026-01-01 00:00, un jeudi.
+    n = 4 * ROWS_PER_DAY
+    df = _site_frame("SITE_A", [1.0] * n)
+
+    out = add_time_features(df)
+
+    first_row = out.iloc[0]
+    assert first_row["hour_of_day"] == 0
+    assert first_row["day_of_week"] == 3  # jeudi (Monday=0)
+    assert first_row["is_weekend"] == 0
+
+    # 3 jours plus tard (dimanche) à 14h -> ligne à l'index 3*ROWS_PER_DAY + 14*ROWS_PER_HOUR.
+    sunday_14h_index = 3 * ROWS_PER_DAY + 14 * ROWS_PER_HOUR
+    sunday_row = out.iloc[sunday_14h_index]
+    assert sunday_row["hour_of_day"] == 14
+    assert sunday_row["day_of_week"] == 6  # dimanche
+    assert sunday_row["is_weekend"] == 1
+
+
+def test_calendar_features_never_depend_on_consumption_value():
+    n = 500
+    rng = np.random.default_rng(0)
+    df = _site_frame("SITE_A", list(100 + rng.normal(0, 5, n)))
+
+    reference = add_time_features(df)
+
+    poisoned = df.copy()
+    poisoned.loc[100, "consumption_kw"] = 99_999.0
+    poisoned_out = add_time_features(poisoned)
+
+    for column in (
+        "hour_of_day",
+        "day_of_week",
+        "is_weekend",
+        "hour_sin",
+        "hour_cos",
+        "day_sin",
+        "day_cos",
+    ):
+        pd.testing.assert_series_equal(
+            reference[column], poisoned_out[column], check_names=False
+        )
+
+
+def test_cyclic_calendar_encoding_matches_hour_and_day_of_week():
+    # START = 2026-01-01 00:00, un jeudi (day_of_week=3).
+    df = _site_frame("SITE_A", [1.0] * 10)
+
+    out = add_time_features(df)
+    row = out.iloc[0]
+
+    assert row["hour_of_day"] == 0
+    assert row["hour_sin"] == pytest.approx(0.0, abs=1e-9)
+    assert row["hour_cos"] == pytest.approx(1.0)
+
+    assert row["day_of_week"] == 3
+    assert row["day_sin"] == pytest.approx(np.sin(2 * np.pi * 3 / 7))
+    assert row["day_cos"] == pytest.approx(np.cos(2 * np.pi * 3 / 7))
+
+    # sin^2 + cos^2 == 1 pour tout encodage cyclique valide.
+    assert row["hour_sin"] ** 2 + row["hour_cos"] ** 2 == pytest.approx(1.0)
+    assert row["day_sin"] ** 2 + row["day_cos"] ** 2 == pytest.approx(1.0)

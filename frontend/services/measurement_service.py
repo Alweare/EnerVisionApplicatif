@@ -1,25 +1,17 @@
-import os
-
-import requests
-
-CORE_URL = os.environ["CORE_URL"]
+from services.api_client import get
 
 
 def get_current_measurement(site_id: str) -> dict | None:
-    response = requests.get(
-        f"{CORE_URL}/api/v1/backend/sites/{site_id}/current", timeout=10
+    """Dernière mesure d'un site, ou `None` si aucune mesure n'est enregistrée."""
+    return get(
+        f"/api/v1/backend/sites/{site_id}/current", timeout=10, allow_404=True
     )
-    if response.status_code == 404:
-        return None
-    response.raise_for_status()
-    return response.json()
 
 
 def get_measurement_history(site_id: str, limit: int = 100, offset: int = 0) -> list[dict]:
-    response = requests.get(
-        f"{CORE_URL}/api/v1/backend/sites/{site_id}/measurements",
+    """Historique des mesures d'un site (de la plus récente à la plus ancienne)."""
+    return get(
+        f"/api/v1/backend/sites/{site_id}/measurements",
         params={"limit": limit, "offset": offset},
         timeout=10,
     )
-    response.raise_for_status()
-    return response.json()

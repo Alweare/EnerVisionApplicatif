@@ -3,26 +3,28 @@ import logging
 import os
 
 from shared.database import SessionLocal
+from shared.logging_setup import setup_logging
 from etl.service.etl_service import ETLService
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+setup_logging("etl")
+logger = logging.getLogger("etl.main")
 
 
 def main():
-    print("Initialisation du script...")
+    logger.info("Initialisation du service ETL")
 
     db = SessionLocal()
 
     try:
-        print("Lancement du service ETL...")
+        logger.info("Lancement de la boucle ETL")
         etl = ETLService(db)
         etl.start_continuous_run(
             interval=int(os.getenv("ETL_INTERVAL_SECONDS", "60"))
         )
     except KeyboardInterrupt:
-        print("\nArrêt manuel du service ETL.")
-    except Exception as e:
-        print(f"Erreur fatale : {e}")
+        logger.info("Arrêt manuel du service ETL")
+    except Exception:
+        logger.exception("Erreur fatale du service ETL")
     finally:
         db.close()
 

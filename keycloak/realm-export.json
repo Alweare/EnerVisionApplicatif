@@ -19,6 +19,9 @@
       "serviceAccountsEnabled": false,
       "redirectUris": ["http://localhost:8501/oauth2callback"],
       "webOrigins": ["http://localhost:8501"],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8501/*"
+      },
       "protocolMappers": [
         {
           "name": "audience-enervision-api",

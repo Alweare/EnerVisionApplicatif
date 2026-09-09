@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Float, Text, TIMESTAMP, ForeignKey, text
 from shared.base import Base
-
+#test
 class Alert(Base):
     __tablename__ = "alert"
     __table_args__ = {"schema": "ener"}
