@@ -2,9 +2,222 @@
 
 Documentation du cycle MLOps du service `backend/prediction/` : dataset,
 entraînement, baseline, drift, promotion champion/challenger, service
-d'inférence, API, observabilité. Base légale : `LinearRegression`
-(`sklearn.linear_model.LinearRegression`) sur les trois features existantes
-(`lag_1h`, `lag_24h`, `rolling_mean_24h`), inchangées.
+d'inférence, API, observabilité. Modèle : `LinearRegression`
+(`sklearn.linear_model.LinearRegression`), désormais **multi-output**
+(§Forecast multi-horizon ci-dessous), sur huit features (`lag_1h`, `lag_24h`,
+`lag_168h`, `rolling_mean_24h`, `rolling_mean_168h`, `hour_of_day`,
+`day_of_week`, `is_weekend`).
+
+---
+
+## Forecast multi-horizon (T+1h → T+7j)
+
+### Pourquoi le besoin a évolué
+
+Le service ne répondait qu'à « quelle sera la consommation dans 1h ? ».
+Afficher une courbe (frontend/Grafana/autre) exige une **prévision continue**
+sur plusieurs jours, pas une valeur isolée. Le modèle prédit désormais, en un
+seul appel, une valeur par heure de **T+1h à T+168h** (7 jours), granularité
+1h, horizon minimum 1h, horizon maximum 168h.
+
+### Stratégie ML retenue : régression directe multi-horizon, matérialisée en multi-output
+
+Trois familles de stratégies ont été comparées avant tout code :
+
+| Stratégie | Propagation d'erreur | Coût entraînement | Complexité / artefacts | Retenue |
+|---|---|---|---|---|
+| **Récursive** (modèle T+1h réinjecté 168 fois) | Cumulative sur 168 pas — explicitement écartée par le besoin | Faible (1 modèle) | Faible | ❌ |
+| **168 modèles indépendants** (un par horizon) | Aucune (direct) | ~168× (négligeable pour `LinearRegression`, mais 168 artefacts) | Élevée : 168 `Registered Model`/versions à gérer, casse le principe « un seul `consumption-predictor` » | ❌ |
+| **Multi-output** (`LinearRegression.fit(X, Y)`, `Y` = 168 colonnes cibles) | Aucune (direct) | ~1× (une seule résolution des moindres carrés, plusieurs colonnes) | Faible : **un seul objet Python, un seul artefact MLflow, un seul Registered Model** | ✅ |
+
+`LinearRegression` de scikit-learn accepte nativement une cible 2D
+(`n_échantillons × n_horizons`) : chaque colonne de sortie est résolue de
+façon indépendante par les moindres carrés (mathématiquement identique à 168
+régressions séparées sur le même `X`), mais reste **un seul estimateur
+scikit-learn**, chargé/loggé/servi comme un objet unique. Ce choix :
+
+- **Direct, jamais récursif** : chaque horizon est une sortie directe du
+  modèle à partir des features de l'instant T (l'ancre) — aucune prédiction
+  n'est réinjectée comme feature pour l'horizon suivant, donc aucune
+  propagation d'erreur (`inference/prediction_service.py::_predict_all_horizons`
+  fait **un seul** appel `model.predict(X)` par requête, quel que soit
+  `hours`, vérifié par
+  `tests/test_prediction_service.py::test_forecast_calls_feature_builder_exactly_once_not_recursively`).
+- **Compatible avec `LinearRegression`** : aucun changement d'algorithme
+  demandé par le besoin.
+- **Un seul Registered Model** (`consumption-predictor`, conservé) : pas de
+  prolifération de modèles/aliases à gérer dans le Registry.
+- **Explicable devant un jury** : « même modèle linéaire, 168 sorties
+  calibrées simultanément sur le même vecteur de features », pas de boîte
+  noire supplémentaire.
+- **Entraînement toujours quasi instantané** pour `LinearRegression` (une
+  résolution de moindres carrés, même avec 168 colonnes de sortie).
+
+### Ce que prédit désormais le modèle
+
+168 cibles simultanées : `target_h1` (= `consumption_kw` à T+1h, alias
+`TARGET_COLUMN` historique, conservé) jusqu'à `target_h168` (= `consumption_kw`
+à T+168h), chacune `groupby("site_id")["consumption_kw"].shift(-h·60)` — même
+mécanique que la cible T+1h existante, généralisée (`dataset/dataset.py::build_dataset`).
+
+### Features ajoutées, prévention des fuites temporelles
+
+Les 3 features historiques (`lag_1h`, `lag_24h`, `rolling_mean_24h`) ne
+portent aucun signal de saisonnalité hebdomadaire — insuffisant pour un
+horizon à 7 jours. Ajoutées (`features/time_features.py::add_time_features`),
+avec la même discipline anti-fuite que l'existant (`shift`/`rolling` par
+site, jamais de valeur future) :
+
+- **`lag_168h`**, **`rolling_mean_168h`** : mêmes mécaniques que `lag_24h`/
+  `rolling_mean_24h`, décalées à 7 jours (`ROWS_PER_WEEK = 7 × ROWS_PER_DAY`).
+- **`hour_of_day`, `day_of_week`, `is_weekend`** : fonctions pures et
+  déterministes de `measurement_date` **de la ligne T elle-même** (jamais de
+  l'instant cible T+h) — aucun historique requis, aucune fuite possible par
+  construction (`tests/test_time_features.py::test_calendar_features_never_depend_on_consumption_value`).
+
+Un seul vecteur de features `X` (calculé à l'instant T, l'ancre) sert à
+prédire **les 168 horizons** — c'est ce qui permet à un seul appel
+`model.predict(X)` de produire toute la courbe. Conséquence assumée : une
+ligne n'est exploitable à l'entraînement que si son **passé** (7 jours, pour
+`lag_168h`) et son **futur** (7 jours, pour `target_h168`) sont tous deux
+connus (`dataset/dataset.py::clean_multi_horizon_dataset`) — réduit la fenêtre
+utilisable aux lignes dont les 7 jours suivants sont déjà observés, attendu
+pour un entraînement multi-horizon honnête, pas un bug.
+
+Le même code (`add_time_features`, `FEATURE_COLUMNS`) est utilisé à
+l'entraînement (`training/pipeline.py`) et à l'inférence
+(`inference/feature_builder.py::build_latest_features`) : aucune divergence
+possible entre les deux.
+
+### Baseline multi-horizon
+
+Revue pour ne jamais comparer le candidat à une règle trop faible ou
+arbitraire (`training/baseline.py`). Deux régimes, toujours calculables
+depuis le passé strict (jamais de fuite) :
+
+- **h ≤ 24h : persistance** — `baseline(T+h) = consumption_kw(T)`. C'est la
+  règle naïve la plus dure à battre à court terme (forte autocorrélation),
+  donc la référence la plus honnête.
+- **h > 24h : « même heure, la semaine précédente »** — `baseline(T+h) =
+  consumption_kw(T+h-168h)`. Comme `h ≤ 168h`, `T+h-168h ≤ T` : toujours
+  connue en T, quel que soit `h`. Un régime « même heure hier » (24h) a été
+  jugé redondant avec la persistance sur 1..24h et inutile au-delà — deux
+  régimes suffisent à couvrir 1..168h simplement.
+
+### MAE par horizon, jamais une seule MAE globale
+
+Le détail complet (`mae_h1`..`mae_h168`, `baseline_mae_h1`..`baseline_mae_h168`)
+est calculé (`training/pipeline.py::_mae_by_horizon`) et loggé en **artefact
+MLflow JSON** (`mae_by_horizon.json`) — jamais en 168 métriques MLflow
+séparées (illisible). Trois horizons clés (`mae_h1`, `mae_h24`, `mae_h168`,
+`baseline_mae_h1`, `baseline_mae_h24`, `baseline_mae_h168`, `mae_mean`) sont
+en plus loggés comme **métriques MLflow scalaires**, lisibles directement
+dans l'UI et exposées en Prometheus (`ml_mae_h24`, `ml_mae_h168`, etc. —
+voir §Prometheus).
+
+### Règle de promotion multi-horizon
+
+Un candidat excellent à T+1h mais catastrophique à T+168h ne doit jamais
+devenir champion. `training/pipeline.py::_decide_promotion` exige que le
+candidat batte la baseline **puis** (s'il existe) le champion
+**simultanément** aux trois horizons clés (h1, h24, h168) — pas en moyenne :
+si un seul de ces horizons ne satisfait pas le seuil configuré
+(`MIN_IMPROVEMENT_VS_BASELINE`/`MIN_IMPROVEMENT_VS_CHAMPION`, inchangés), le
+candidat est rejeté, avec le détail de l'horizon fautif dans le message de
+raison. `mae_mean` reste une information complémentaire (loggée), jamais un
+critère de décision. Le principe **baseline → challenger → champion** et les
+alias MLflow existants sont conservés à l'identique.
+
+### API
+
+`GET /api/v1/sites/{site_id}/prediction` (T+1h) est **conservé sans
+changement de contrat** — en interne, c'est désormais le premier point d'un
+`forecast(hours=1)` sur le même modèle multi-output.
+
+Ajouté : `GET /api/v1/sites/{site_id}/forecast?hours=24` (défaut 24,
+1 ≤ hours ≤ 168, validé par FastAPI `Query(ge=1, le=168)` → `422`
+automatique hors plage). Réponse : `ForecastResponse` (`api/schemas.py`),
+avec une distinction explicite entre trois instants (§5 du besoin) :
+
+- **`generated_at`** : horloge système, instant réel de l'appel API.
+- **`base_timestamp`** : dernière mesure réellement utilisée pour construire
+  les features (peut être **postérieure** à `generated_at` avec un dataset
+  simulé/historique — jamais filtré par `measurement_date <= NOW()`).
+- **`target_timestamp`** (par point) : `base_timestamp + horizon_hours`
+  heures — **jamais** calculé depuis `generated_at`.
+
+Le contrôleur (`api/controller/prediction.py`) reste mince : aucune logique
+ML, seulement validation d'entrée, appel au service, mapping d'exceptions
+(factorisé entre `/prediction` et `/forecast` via `_map_inference_errors`) et
+sérialisation. Toute la logique de forecast vit dans
+`inference/prediction_service.py::PredictionService.forecast`.
+
+### PostgreSQL
+
+`ener.prediction` est réutilisée telle quelle : un forecast de N heures =
+N lignes (`predicted_for` différent par ligne), inséré en un seul lot
+(`repository/prediction_repository.py::record_predictions`, une transaction
+pour jusqu'à 168 lignes plutôt que 168 allers-retours).
+
+**Une seule migration additive** : `db/migrations/V01_10__add_prediction_horizon_hours.sql`
+ajoute `horizon_hours INTEGER` (nullable, non-bloquant, aucune ligne
+existante modifiée, aucune migration existante touchée). Nécessaire — pas
+un confort — parce qu'un appel `/forecast?hours=168` insère jusqu'à 168
+lignes par appel : sans un moyen fiable de distinguer l'horizon d'une ligne,
+la comparaison "performance réelle" (`get_matched_predictions`) mélangerait
+des prédictions de tous les horizons, faussant la MAE réelle comparée à la
+MAE de référence (calculée à T+1h). Dériver l'horizon depuis
+`predicted_for - created_at` a été explicitement écarté : avec un dataset
+simulé/historique dont `measurement_date` peut être postérieur à l'horloge
+système (§5 du besoin), cette différence ne reflète pas l'horizon réel.
+
+### Performance réelle par horizon
+
+`get_matched_predictions(model_version, horizon_hours=1)` filtre désormais
+sur un horizon précis (défaut 1h, l'horizon de référence historique du
+champion) — la comparaison prédiction/réel utilisée par
+`retrain/signals.compute_real_performance` reste donc, comme avant, ancrée
+sur l'horizon T+1h uniquement (aucun changement de comportement du
+réentraînement conditionnel). La fonction accepte n'importe quel horizon
+(1, 24, 168, ...) pour une inspection manuelle de la performance réelle à
+d'autres horizons ; câbler cela dans `should_retrain` a été jugé disproportionné
+pour l'instant (§Limites) — pas de nouvel endpoint HTTP dédié, non demandé
+par le besoin.
+
+### Drift
+
+`DRIFT_FEATURE_COLUMNS` (`dataset/dataset.py`) couvre les 5 features
+« consommation passée » (`lag_1h`, `lag_24h`, `lag_168h`, `rolling_mean_24h`,
+`rolling_mean_168h`). Les 3 features calendaires (`hour_of_day`,
+`day_of_week`, `is_weekend`) en sont **explicitement exclues** : leur
+distribution est mécaniquement stable (le calendrier boucle toujours de la
+même façon) — un PSI dessus ne mesurerait qu'un artefact d'échantillonnage de
+la fenêtre d'entraînement, jamais une vraie dérive du signal de consommation,
+et risquerait de déclencher des réentraînements sans justification métier.
+
+### Prometheus
+
+Ajoutés, sans label à forte cardinalité (jamais `site_id`, `timestamp`,
+`run_id`, `prediction_id`) : `forecast_requests_total{result}`,
+`forecast_errors_total{reason}`, `forecast_latency_seconds`,
+`forecast_points_generated_total`, `ml_mae_h24`, `ml_mae_h168`,
+`ml_baseline_mae_h24`, `ml_baseline_mae_h168` (rafraîchies depuis le run
+MLflow le plus récent, même mécanisme que les gauges `ml_*` existantes).
+
+### Limites (honnêteté sur la qualité à long horizon)
+
+Produire une valeur à T+168h ne signifie **pas** que cette valeur est
+fiable — c'est précisément pour éviter cette confusion que la MAE est
+calculée et loggée **par horizon** (jamais une seule MAE globale qui la
+masquerait) : `baseline_mae_h1 < baseline_mae_h24 < baseline_mae_h168`
+observé systématiquement sur les jeux de test (la baseline elle-même se
+dégrade avec l'horizon), et `mae_h168` doit être lu en regard de
+`baseline_mae_h168`, jamais en absolu. Une `LinearRegression` peut être
+excellente à T+1h et significativement moins bonne à T+7j — la règle de
+promotion (ci-dessus) est conçue pour ne jamais masquer cette dégradation,
+mais elle ne la fait pas disparaître : la qualité réelle à 7 jours dépend du
+volume et de la nature des données de production, à valider en conditions
+réelles (voir §Limitations en fin de document).
 
 ---
 
