@@ -217,6 +217,71 @@ jobs:
 
 
   # ============================================================
+  # STAGE 1b : ANALYSE SONARQUBE CLOUD
+  #
+  # Plan Free (repo privé) : seules la branche principale et les Pull
+  # Requests sont analysables (l'analyse des autres branches longues est
+  # payante). Branche principale Sonar = `develop`.
+  #
+  #   PR vers main/develop -> analyse + décoration de la PR
+  #   push develop         -> mise à jour de la branche principale
+  #   push main            -> volontairement exclu (2e branche = payant)
+  #
+  # Automatic Analysis doit rester DÉSACTIVÉE côté SonarCloud, sinon la
+  # couverture remontée ici est ignorée. Config : sonar-project.properties.
+  # ============================================================
+
+  sonarqube:
+    name: SonarQube analysis
+    needs:
+      - changes
+      - test
+
+    if: >
+      !cancelled() &&
+      needs.test.result == 'success' &&
+      needs.changes.outputs.has_changes == 'true' &&
+      (
+        github.event_name == 'pull_request' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+      )
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download coverage reports
+        uses: actions/download-artifact@v7
+        with:
+          pattern: coverage-*
+          path: coverage-reports
+
+      # Contrôle explicite : si le glob sonar.python.coverage.reportPaths ne
+      # matche rien, la couverture remonte silencieusement à 0 sur SonarCloud.
+      - name: Check coverage reports are present
+        run: |
+          set -euo pipefail
+          echo "Fichiers récupérés :"
+          find coverage-reports -name 'coverage.xml' -print
+
+          if [ -z "$(find coverage-reports -name 'coverage.xml' -print -quit)" ]; then
+            echo "::error::Aucun coverage.xml trouvé sous coverage-reports/ — vérifier le job test et le pattern d'artefact."
+            exit 1
+          fi
+
+      - name: SonarQube Cloud Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+
+
+  # ============================================================
   # STAGE 2 : BUILD + SCAN + PUSH
   #
   # PR              -> build + scan (aucun push)
