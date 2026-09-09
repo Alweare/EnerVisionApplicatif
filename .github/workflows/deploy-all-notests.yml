@@ -1,0 +1,236 @@
+name: Deploy All (sans tests)
+
+# Déclenchement manuel uniquement (bouton "Run workflow") : build + publish +
+# deploy de TOUS les services, sans passer par le job test. Pensé pour un
+# déploiement complet ponctuel (ex. après un incident, ou pour rattraper un
+# retard), pas pour un usage courant — le pipeline normal (ci-cd.yml) reste
+# la voie standard avec tests.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-all-notests
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: enervisiong3
+
+jobs:
+
+  # ============================================================
+  # Liste fixe : tous les services déployables. Doit rester
+  # synchronisée avec ALL_SERVICES dans ci-cd.yml.
+  # ============================================================
+
+  matrix:
+    name: Build service matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      services: ${{ steps.matrix.outputs.services }}
+
+    steps:
+      - name: Build service matrix
+        id: matrix
+        run: |
+          set -euo pipefail
+
+          SERVICES=$(jq -c '
+            [ .[] | {
+                name: (split("/") | last),
+                dir: .,
+                root: (split("/") | first),
+                context: (
+                  if . == "frontend"
+                  then "frontend"
+                  else "."
+                  end
+                )
+              } ]' <<< '["backend/etl","backend/prediction","backend/core","backend/workeringestion","frontend"]')
+
+          echo "services=$SERVICES" >> "$GITHUB_OUTPUT"
+
+          echo "### Services à déployer (sans tests)" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.[] | "- \(.name) (`\(.dir)`)"' <<< "$SERVICES" >> "$GITHUB_STEP_SUMMARY"
+
+
+  # ============================================================
+  # BUILD + SCAN (pas de job test en amont)
+  # ============================================================
+
+  build:
+    name: Build & scan - ${{ matrix.service.name }}
+    needs: matrix
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.matrix.outputs.services) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dir }}/Dockerfile
+          load: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.35.0
+        env:
+          TRIVY_IGNORE_UNFIXED: "true"
+          TRIVY_SEVERITY: "CRITICAL,HIGH"
+          TRIVY_SCANNERS: "vuln"
+          TRIVY_SKIP_VERSION_CHECK: "true"
+          TRIVY_DISABLE_VEX_NOTICE: "true"
+          TRIVY_IGNOREFILE: ".trivyignore"
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+
+      - name: Save Docker image
+        run: |
+          set -euo pipefail
+
+          docker save \
+            "${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}:${{ github.sha }}" \
+            | gzip > "${{ matrix.service.name }}.tar.gz"
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-image-${{ matrix.service.name }}
+          path: ${{ matrix.service.name }}.tar.gz
+          retention-days: 1
+          compression-level: 0
+
+
+  # ============================================================
+  # PUBLISH (SHA + latest, comme sur main)
+  # ============================================================
+
+  publish:
+    name: Publish - ${{ matrix.service.name }}
+
+    needs:
+      - matrix
+      - build
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.matrix.outputs.services) }}
+
+    steps:
+      - name: Download Docker image
+        uses: actions/download-artifact@v7
+        with:
+          name: docker-image-${{ matrix.service.name }}
+
+      - name: Load Docker image
+        run: |
+          set -euo pipefail
+          gunzip -c "${{ matrix.service.name }}.tar.gz" | docker load
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker image
+        run: |
+          set -euo pipefail
+
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}"
+
+          docker push "$IMAGE:${{ github.sha }}"
+          docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
+
+
+  # ============================================================
+  # DEPLOY PRODUCTION
+  # ============================================================
+
+  deploy:
+    name: Deploy production
+
+    needs:
+      - matrix
+      - publish
+
+    runs-on:
+      - self-hosted
+      - linux
+
+    timeout-minutes: 30
+
+    environment:
+      name: production
+
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Sync deploy.sh vers le serveur
+        run: |
+          set -euo pipefail
+          cp deploy.sh /opt/enervisionG3/deploy.sh
+          chmod +x /opt/enervisionG3/deploy.sh
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy all services
+        env:
+          SERVICES: ${{ needs.matrix.outputs.services }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          while read -r name dir; do
+            echo "Deploying $name ($dir)..."
+
+            SERVICE="$name" \
+            SERVICE_DIR="$dir" \
+            IMAGE="$REGISTRY/$IMAGE_PREFIX/$name:$GIT_SHA" \
+            /opt/enervisionG3/deploy.sh
+
+          done < <(jq -r '.[] | "\(.name) \(.dir)"' <<< "$SERVICES")
