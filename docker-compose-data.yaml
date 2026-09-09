@@ -1,101 +1,76 @@
 services:
 
   postgres:
+    networks:
+      - enervision_network
     image: postgres:16-alpine
     container_name: postgres
     restart: always
-
-    networks:
-      - enervision_network
-
     volumes:
       - postgresql_data:/var/lib/postgresql/data
-
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PWD}
-
     ports:
       - "127.0.0.1:5432:5432"
-
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"
-        ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER}" ]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 30s
 
-
   migration:
-    container_name: migration
-
-    image: ${REGISTRY}/${IMAGE_PREFIX}/migration:${IMAGE_TAG}
-
     networks:
       - enervision_network
-
+    container_name: migration
+    build: db
     depends_on:
       postgres:
         condition: service_healthy
-
     environment:
       PYWAY_TYPE: postgres
       PYWAY_TABLE: public.pyway
-
       PYWAY_DATABASE_USERNAME: ${POSTGRES_USER}
       PYWAY_DATABASE_PASSWORD: ${POSTGRES_PWD}
       PYWAY_DATABASE_HOST: postgres
       PYWAY_DATABASE_PORT: 5432
       PYWAY_DATABASE_NAME: ${POSTGRES_DB}
-
       PYWAY_DATABASE_MIGRATION_DIR: migrations
-
       APP_DB_USER: ${POSTGRES_APP_USER}
       APP_DB_PASSWORD: ${POSTGRES_APP_PWD}
 
-
   mlflow:
+    build:
+      context: ./mlflow
     container_name: mlflow
-
-    image: ${REGISTRY}/${IMAGE_PREFIX}/mlflow:${IMAGE_TAG}
-
     networks:
       - enervision_network
-
     depends_on:
       postgres:
         condition: service_healthy
-
     ports:
       - "5000:5000"
-
     volumes:
       - /opt/enervisionG3/data/mlflow-artifacts:/mlflow-artifacts
-
     healthcheck:
       test:
         [
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"
+          "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)",
         ]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 15s
-
     deploy:
       resources:
         limits:
           cpus: "1.0"
           memory: 2g
-
     command: >
       mlflow server
       --backend-store-uri postgresql://${POSTGRES_USER_MLFLOW}:${POSTGRES_PASSWORD_MLFLOW}@postgres:5432/${POSTGRES_DB}
@@ -105,10 +80,8 @@ services:
       --port 5000
       --allowed-hosts "mlflow:5000,mlflow,localhost:*,127.0.0.1:*"
 
-
 volumes:
   postgresql_data:
-
 
 networks:
   enervision_network:
