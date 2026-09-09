@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 import pytest
@@ -33,6 +33,7 @@ def test_record_prediction_inserts_expected_row():
         predicted_for=predicted_for,
         predicted_consumption_kw=42.5,
         model_version="3",
+        horizon_hours=1,
         engine=engine,
     )
 
@@ -44,7 +45,37 @@ def test_record_prediction_inserts_expected_row():
         "predicted_for": predicted_for,
         "predicted_consumption_kw": 42.5,
         "model_version": "3",
+        "horizon_hours": 1,
     }
+
+
+def test_record_predictions_batch_inserts_all_rows_in_one_transaction():
+    engine = FakeEngine()
+    rows = [
+        {
+            "site_id": "SITE001",
+            "predicted_for": datetime(2026, 1, 1, 12, 0, 0) + timedelta(hours=h),
+            "predicted_consumption_kw": float(h),
+            "model_version": "3",
+            "horizon_hours": h,
+        }
+        for h in range(1, 25)
+    ]
+
+    repo.record_predictions(rows, engine=engine)
+
+    assert len(engine.connection.calls) == 1
+    sql, params = engine.connection.calls[0]
+    assert "INSERT INTO ener.prediction" in sql
+    assert params == rows
+
+
+def test_record_predictions_does_nothing_for_empty_list():
+    engine = FakeEngine()
+
+    repo.record_predictions([], engine=engine)
+
+    assert len(engine.connection.calls) == 0
 
 
 @pytest.fixture
@@ -62,10 +93,15 @@ def captured(monkeypatch):
     return calls
 
 
-def test_get_matched_predictions_filters_by_model_version(captured):
+def test_get_matched_predictions_filters_by_model_version_and_horizon(captured):
     repo.get_matched_predictions("3", engine=object())
-    assert captured["params"] == {"model_version": "3"}
-    assert "WHERE p.model_version = :model_version" in captured["sql"]
+    assert captured["params"] == {"model_version": "3", "horizon_hours": 1}
+    assert "WHERE p.model_version = :model_version AND p.horizon_hours = :horizon_hours" in captured["sql"]
+
+
+def test_get_matched_predictions_horizon_is_configurable(captured):
+    repo.get_matched_predictions("3", horizon_hours=24, engine=object())
+    assert captured["params"] == {"model_version": "3", "horizon_hours": 24}
 
 
 def test_get_matched_predictions_returns_empty_dataframe_when_no_rows(captured):
