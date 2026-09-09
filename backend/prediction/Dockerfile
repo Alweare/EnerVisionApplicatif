@@ -9,4 +9,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/prediction/ ./prediction/
 COPY backend/shared/ ./shared/
 
-CMD ["python", "-m", "prediction.main"]
+EXPOSE 8000
+
+CMD ["python", "-m", "prediction.main", "serve"]

@@ -13,6 +13,12 @@ from formatting import (
     format_number,
     format_power_factor,
     is_data_reliable,
+    peak_within_hours,
+    recommendation_confidence,
+    recommendation_confidence_color,
+    recommendation_confidence_label,
+    recommendation_status_color,
+    recommendation_status_label,
     relative_time,
     site_option_label,
     site_type_label,
@@ -74,6 +80,93 @@ def test_data_quality_color(value, expected):
 )
 def test_is_data_reliable(value, expected):
     assert is_data_reliable(value) is expected
+
+
+# --- recommendation_status_label / color -----------------------------
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("pending", "À traiter"),
+        ("applied", "Appliquée"),
+        ("dismissed", "Ignorée"),
+        ("weird", "Weird"),
+        (None, "Statut inconnu"),
+        ("", "Statut inconnu"),
+    ],
+)
+def test_recommendation_status_label(value, expected):
+    assert recommendation_status_label(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("pending", "orange"),
+        ("applied", "green"),
+        ("dismissed", "gray"),
+        ("weird", "gray"),
+        (None, "gray"),
+    ],
+)
+def test_recommendation_status_color(value, expected):
+    assert recommendation_status_color(value) == expected
+
+
+# --- recommendation_confidence --------------------------------------
+
+@pytest.mark.parametrize(
+    ("lead", "expected"),
+    [
+        (timedelta(hours=1), "high"),
+        (timedelta(hours=6), "high"),
+        (timedelta(hours=24), "medium"),
+        (timedelta(hours=48), "medium"),
+        (timedelta(days=7), "low"),
+    ],
+)
+def test_recommendation_confidence_by_forecast_lead(lead, expected):
+    created = datetime(2026, 9, 8, 12, 0, tzinfo=timezone.utc)
+    assert recommendation_confidence(created + lead, created) == expected
+
+
+def test_recommendation_confidence_none_when_date_missing():
+    assert recommendation_confidence(None, "2026-09-08T12:00:00") is None
+    assert recommendation_confidence("2026-09-09T12:00:00", None) is None
+
+
+def test_recommendation_confidence_parses_naive_iso_strings():
+    assert recommendation_confidence("2026-09-08T14:00:00", "2026-09-08T12:00:00") == "high"
+
+
+@pytest.mark.parametrize(
+    ("level", "label", "color"),
+    [
+        ("high", "Fiable", "green"),
+        ("medium", "Probable", "orange"),
+        ("low", "Indicatif", "gray"),
+        (None, "Fiabilité inconnue", "gray"),
+    ],
+)
+def test_recommendation_confidence_label_and_color(level, label, color):
+    assert recommendation_confidence_label(level) == label
+    assert recommendation_confidence_color(level) == color
+
+
+# --- peak_within_hours ---------------------------------------------
+
+def test_peak_within_hours_true_inside_the_window():
+    now = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)
+    assert peak_within_hours("2026-09-10T09:00:00", 24, now=now) is True
+
+
+def test_peak_within_hours_false_beyond_the_window():
+    now = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)
+    assert peak_within_hours("2026-09-12T09:00:00", 24, now=now) is False
+
+
+def test_peak_within_hours_false_when_date_missing():
+    assert peak_within_hours(None, 24) is False
 
 
 # --- format_number -----------------------------------------------------

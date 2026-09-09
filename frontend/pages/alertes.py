@@ -19,7 +19,7 @@ from formatting import (
     sort_alerts,
 )
 from services.alert_service import get_alerts
-from services.site_service import get_sites
+from services.site_service import get_my_sites
 
 require_authentication()
 render_logo()
@@ -32,7 +32,7 @@ FENETRE_JOURS = 30
 ENCRE = "#0b0b0b"
 ENCRE_SECONDAIRE = "#52514e"
 
-sites = get_sites()
+sites = get_my_sites()
 
 if not sites:
     st.warning("Aucun site associé à votre compte.")
@@ -120,7 +120,7 @@ def show_histogram(site_id: str, severities: list[str]) -> None:
                 domain=False, ticks=False, labelColor=ENCRE_SECONDAIRE, labelFontSize=11
             ),
         ),
-       
+
         x=alt.X("nombre:Q", title=None, axis=None),
     )
     barres = base.mark_bar(cornerRadiusEnd=4, size=13).encode(
@@ -172,7 +172,6 @@ def show_histogram(site_id: str, severities: list[str]) -> None:
     )
     st.altair_chart(chart)
 
-   
     if st.toggle("Voir les chiffres", key="chiffres_alertes"):
         st.dataframe(
             counts.pivot(index="type", columns="site", values="nombre").reindex(types),
@@ -201,7 +200,7 @@ def show_alerts(site_id: str, severities: list[str]) -> None:
 
 
 with st.expander(
-    f"Répartition sur les {FENETRE_JOURS} derniers jours", expanded=True
+        f"Répartition sur les {FENETRE_JOURS} derniers jours", expanded=True
 ):
     show_histogram(selected_site_id, selected_severities)
 

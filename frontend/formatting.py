@@ -1,5 +1,3 @@
-"""Fonctions de mise en forme pour l'affichage du dashboard (aucune I/O)."""
-
 from datetime import datetime, timezone
 
 SITE_TYPE_LABELS = {
@@ -61,6 +59,114 @@ ALERT_TYPE_LABELS = {
 }
 
 
+ACTION_TYPE_LABELS = {
+    "shift_load": ("🕑", "Décaler la charge"),
+    "reduce_load": ("⚡", "Délester la charge"),
+    "notify": ("📣", "Alerter l'exploitant"),
+}
+
+
+RECOMMENDATION_STATUS_LABELS = {
+    "pending": "À traiter",
+    "applied": "Appliquée",
+    "dismissed": "Ignorée",
+}
+
+# Ton du badge de statut (couleurs `st.badge`).
+RECOMMENDATION_STATUS_COLORS = {
+    "pending": "orange",
+    "applied": "green",
+    "dismissed": "gray",
+}
+
+
+# Fiabilité d'une reco, déduite de l'horizon de la prévision qui l'a produite
+# (écart `predicted_for - created_at`). Une prévision à 1 h est plus sûre qu'à
+# 1 semaine. Seuils calés sur les horizons du modèle (T+1h / T+24h / T+1 sem.).
+RECOMMENDATION_CONFIDENCE_LABELS = {
+    "high": "Fiable",
+    "medium": "Probable",
+    "low": "Indicatif",
+}
+
+RECOMMENDATION_CONFIDENCE_COLORS = {
+    "high": "green",
+    "medium": "orange",
+    "low": "gray",
+}
+
+
+def action_type_label(action_type: str | None) -> str:
+    """Libellé français d'une action de recommandation (ex. `shift_load`)."""
+    if not action_type:
+        return "Action recommandée"
+    return ACTION_TYPE_LABELS.get(action_type, ("💡", action_type.replace("_", " ").capitalize()))[1]
+
+
+def action_type_icon(action_type: str | None) -> str:
+    """Emoji associé à une action de recommandation."""
+    return ACTION_TYPE_LABELS.get(action_type, ("💡", ""))[0]
+
+
+def recommendation_status_label(status: str | None) -> str:
+    """Libellé français du statut d'une reco (ex. `applied` -> `Appliquée`)."""
+    if not status:
+        return "Statut inconnu"
+    return RECOMMENDATION_STATUS_LABELS.get(status, status.capitalize())
+
+
+def recommendation_status_color(status: str | None) -> str:
+    """Couleur du badge de statut pour `st.badge` (`orange`, `green`, `gray`)."""
+    return RECOMMENDATION_STATUS_COLORS.get(status, "gray")
+
+
+def recommendation_confidence(
+    predicted_for: str | datetime | None,
+    created_at: str | datetime | None,
+) -> str | None:
+    """Niveau de fiabilité (`high`/`medium`/`low`) d'une reco, ou `None` si inconnu.
+
+    Basé sur l'horizon de la prévision d'origine = `predicted_for - created_at` :
+    ≤ 6 h → `high`, ≤ 48 h → `medium`, au-delà → `low`.
+    """
+    peak = _as_aware_utc(predicted_for)
+    made = _as_aware_utc(created_at)
+    if peak is None or made is None:
+        return None
+    lead_hours = (peak - made).total_seconds() / 3600
+    if lead_hours <= 6:
+        return "high"
+    if lead_hours <= 48:
+        return "medium"
+    return "low"
+
+
+def recommendation_confidence_label(level: str | None) -> str:
+    """Libellé du badge de fiabilité (`Fiable` / `Probable` / `Indicatif`)."""
+    return RECOMMENDATION_CONFIDENCE_LABELS.get(level, "Fiabilité inconnue")
+
+
+def recommendation_confidence_color(level: str | None) -> str:
+    """Couleur du badge de fiabilité pour `st.badge`."""
+    return RECOMMENDATION_CONFIDENCE_COLORS.get(level, "gray")
+
+
+def peak_within_hours(
+    predicted_for: str | datetime | None,
+    hours: float,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """`True` si le pic visé tombe dans les `hours` prochaines heures."""
+    peak = _as_aware_utc(predicted_for)
+    if peak is None:
+        return False
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return (peak - now).total_seconds() <= hours * 3600
+
+
 def site_type_label(site_type: str | None) -> str:
     if not site_type:
         return "Inconnu"
@@ -99,8 +205,21 @@ def site_option_label(site: dict) -> str:
     location = site.get("location")
     return f"{name} — {location}" if location else name
 
+def _as_aware_utc(moment: str | datetime | None) -> datetime | None:
+    """Parse une date (ISO string ou datetime) en `datetime` aware UTC, ou `None`.
+
+    Une date naïve est supposée déjà en UTC (comme le stocke le backend).
+    """
+    if moment is None:
+        return None
+    if isinstance(moment, str):
+        moment = datetime.fromisoformat(moment.replace("Z", "+00:00"))
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment
 
 def relative_time(moment: str | datetime | None, *, now: datetime | None = None) -> str:
+    moment = _as_aware_utc(moment)
     if moment is None:
         return "Date inconnue"
     if isinstance(moment, str):

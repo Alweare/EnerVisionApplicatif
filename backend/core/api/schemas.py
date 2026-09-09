@@ -1,7 +1,10 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
+RecommendationStatus = Literal["pending", "applied", "dismissed"]
 
 
 class SiteRead(BaseModel):
@@ -21,6 +24,25 @@ class SiteWithCurrentRead(SiteRead):
     data_quality: str | None = Field(default=None, examples=["good"])
 
 
+class PredictionRead(BaseModel):
+    # `protected_namespaces=()` : sans quoi Pydantic v2 émet un warning sur le
+    # champ `model_version` (préfixe `model_` réservé).
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    prediction_id: UUID
+    site_id: str = Field(examples=["SITE001"])
+    predicted_for: datetime = Field(
+        description="Horodatage visé par la prédiction.",
+        examples=["2026-09-08T13:00:00"],
+    )
+    predicted_consumption_kw: float | None = Field(default=None, examples=[187.3])
+    model_version: str | None = Field(default=None, examples=["v0.1.0-seed"])
+    created_at: datetime | None = Field(
+        default=None,
+        description="Date de génération de la prédiction.",
+    )
+
+
 class MeasurementRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -37,6 +59,32 @@ class MeasurementRead(BaseModel):
     null_reason: list[str] | None
     data_quality: str = Field(examples=["good"])
     created_at: datetime | None
+
+
+class RecommendationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    recommendation_id: UUID
+    site_id: str | None = Field(default=None, examples=["SITE001"])
+    prediction_id: UUID
+    rule_key: str | None = Field(default=None, examples=["peak_over_90pct_capacity"])
+    action_type: str | None = Field(default=None, examples=["shift_load"])
+    message: str | None = Field(
+        default=None,
+        examples=["Pic prévu à 18h00 : 190 kW (capacité 200 kW). Décaler les usages flexibles."],
+    )
+    estimated_gain_kw: float | None = Field(default=None, examples=[20.0])
+    predicted_for: datetime | None = Field(
+        default=None,
+        examples=["2026-09-15T18:00:00"],
+        description="Heure du pic visé",
+    )
+    status: RecommendationStatus = Field(examples=["pending"])
+    created_at: datetime
+
+
+class RecommendationStatusUpdate(BaseModel):
+    status: RecommendationStatus = Field(examples=["applied"])
 
 class AlertRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)

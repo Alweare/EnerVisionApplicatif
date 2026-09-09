@@ -34,61 +34,64 @@
       "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
       "redirectUris": ["http://localhost:8501/*"],
-      "webOrigins": ["http://localhost:8501"]
+      "webOrigins": ["http://localhost:8501"],
+      "protocolMappers": [
+        {
+          "name": "audience-backend-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "backend-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "users": [
     {
-      "username": "demo.admin",
+      "id": "2f6840de-1211-44e5-a33a-39972486c3a6",
+      "username": "claire.moreau",
       "enabled": true,
       "emailVerified": true,
-      "email": "demo.admin@enervision.local",
-      "firstName": "Demo",
-      "lastName": "Admin",
+      "email": "claire.moreau@enervisiong3.fr",
+      "firstName": "Claire",
+      "lastName": "Moreau",
       "requiredActions": [],
       "credentials": [
-        { "type": "password", "value": "demo-admin-password", "temporary": false }
+        { "type": "password", "value": "EnerVision2026!", "temporary": false }
       ],
       "realmRoles": ["admin", "user"]
     },
     {
-      "username": "demo.user",
+      "id": "8bb8a5d1-7f75-4815-bcfd-1cc5aa47b048",
+      "username": "paul.durand",
       "enabled": true,
       "emailVerified": true,
-      "email": "demo.user@enervision.local",
-      "firstName": "Demo",
-      "lastName": "User",
+      "email": "paul.durand@enervisiong3.fr",
+      "firstName": "Paul",
+      "lastName": "Durand",
       "requiredActions": [],
       "credentials": [
-        { "type": "password", "value": "demo-user-password", "temporary": false }
+        { "type": "password", "value": "EnerVision2026!", "temporary": false }
       ],
       "realmRoles": ["user"]
     },
     {
-      "username": "test",
+      "id": "d6a3be5c-bbe5-4ff1-a3fe-3f3cc17bdb7a",
+      "username": "sophie.bernard",
       "enabled": true,
       "emailVerified": true,
-      "email": "test@test.test",
-      "firstName": "test",
-      "lastName": "test",
+      "email": "sophie.bernard@enervisiong3.fr",
+      "firstName": "Sophie",
+      "lastName": "Bernard",
       "requiredActions": [],
       "credentials": [
-        { "type": "password", "value": "test", "temporary": false }
+        { "type": "password", "value": "EnerVision2026!", "temporary": false }
       ],
       "realmRoles": ["user"]
-    },
-    {
-      "username": "admin",
-      "enabled": true,
-      "emailVerified": true,
-      "email": "testadmin@test.test",
-      "firstName": "test",
-      "lastName": "admin",
-      "requiredActions": [],
-      "credentials": [
-        { "type": "password", "value": "admin", "temporary": false }
-      ],
-      "realmRoles": ["admin", "user"]
     }
   ]
 }

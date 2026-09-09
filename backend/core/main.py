@@ -12,6 +12,8 @@ from core.api.controller.alert import router as alert_router
 from core.api.controller.health import router as health_router
 from core.api.controller.me import router as me_router
 from core.api.controller.measurement import router as measurement_router
+from core.api.controller.recommendation import router as recommendation_router
+from core.api.controller.prediction import router as prediction_router
 from core.api.controller.site import router as site_router
 from core.api.middleware.request_logging import RequestLoggingMiddleware
 from core.api.routes import router as auth_router
@@ -43,8 +45,10 @@ app.include_router(health_router)
 app.include_router(site_router)
 app.include_router(measurement_router)
 app.include_router(alert_router)
+app.include_router(prediction_router)
 app.include_router(auth_router)
 app.include_router(me_router)
+app.include_router(recommendation_router)
 
 # Métriques Prometheus (requêtes, latence, codes de statut par endpoint),
 # exposées sur /metrics — cf. EN-280.

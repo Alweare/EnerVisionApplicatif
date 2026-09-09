@@ -21,7 +21,7 @@ if [[ -z "${IMAGE:-}" ]]; then
 fi
 
 case "$SERVICE" in
-    etl|core|workeringestion|frontend|prediction)
+    etl|core|prediction|workeringestion|frontend)
         ;;
     *)
         error "Service non autorisé : $SERVICE"
@@ -57,13 +57,6 @@ if [[ "$SERVICE" == "core" ]]; then
     PORT_ARGS=(-p 8000:8000)
 fi
 
-# frontend a besoin de la config OIDC Streamlit (st.login()/st.user), pas
-# fournie par le montage /run/secrets générique ci-dessous.
-VOLUME_ARGS=()
-if [[ "$SERVICE" == "frontend" ]]; then
-    VOLUME_ARGS=(-v /opt/enervisionG3/secrets/streamlit-secrets.toml:/frontend/.streamlit/secrets.toml:ro)
-fi
-
 docker run -d \
     --name "$SERVICE" \
     --restart unless-stopped \
@@ -71,7 +64,6 @@ docker run -d \
     --env-file /opt/enervisionG3/.env \
     -v /opt/enervisionG3/secrets:/run/secrets:ro \
     "${PORT_ARGS[@]}" \
-    "${VOLUME_ARGS[@]}" \
     "$IMAGE"
 
 sleep 3
@@ -89,9 +81,3 @@ if [[ "$STATUS" != "running" ]]; then
 fi
 
 log "$SERVICE déployé avec succès."
-
-if [[ -n "$PREVIOUS_IMAGE" && "$PREVIOUS_IMAGE" != "$IMAGE" ]]; then
-    log "Suppression de l'ancienne image ($PREVIOUS_IMAGE)..."
-    docker rmi "$PREVIOUS_IMAGE" 2>/dev/null \
-        || log "Image précédente encore référencée ailleurs, conservée."
-fi
