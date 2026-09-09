@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from core.api.schemas import PredictionRead
+from core.api.schemas import SitePredictionRead
 from core.api.service.prediction_service import (
     PredictionNotAvailableError,
     PredictionService,
@@ -10,18 +12,17 @@ from core.api.service.prediction_service import (
 from shared.database import get_db
 from core.schemas import ErrorDetail
 
-router = APIRouter(prefix="/api/v1/backend/prediction", tags=["Predictions"])
+router = APIRouter(prefix="/api/v1/backend/sites", tags=["Predictions"])
 
 
 @router.get(
-    "/{site_id}",
-    response_model=PredictionRead,
+    "/{site_id}/predictions",
     summary="Prédiction de consommation d'un site",
     description=(
-        "Retourne la prédiction de consommation courante pour un site "
-        "(prochaine échéance à venir, sinon la plus récente). Les prédictions "
-        "sont précalculées à partir du modèle MLflow et stockées dans "
-        "`ener.prediction`."
+        "Retourne la projection horaire à venir, le prochain pic prévu, le "
+        "modèle qui l'a produite, et l'historique récent agrégé à l'heure pour "
+        "le tracé. Les prédictions sont précalculées à partir du modèle MLflow "
+        "et stockées dans `ener.prediction`."
     ),
     responses={
         404: {
@@ -34,13 +35,14 @@ router = APIRouter(prefix="/api/v1/backend/prediction", tags=["Predictions"])
         },
     },
 )
-def get_site_prediction(
+def get_site_predictions(
     site_id: str,
-    db: Session = Depends(get_db),
-) -> PredictionRead:
+    db: Annotated[Session, Depends(get_db)],
+    history_hours: Annotated[int, Query(ge=1, le=168)] = 24,
+) -> SitePredictionRead:
     service = PredictionService(db)
     try:
-        return service.get_prediction(site_id)
+        return service.get_prediction(site_id, history_hours=history_hours)
     except SiteNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except PredictionNotAvailableError as error:

@@ -31,6 +31,7 @@ class SiteRepository:
                 Measurement.site_id.label("site_id"),
                 Measurement.consumption_kw.label("consumption_kw"),
                 Measurement.data_quality.label("data_quality"),
+                Measurement.measurement_date.label("measurement_date"),
             )
             .distinct(Measurement.site_id)
             .order_by(Measurement.site_id, Measurement.measurement_date.desc())
@@ -42,6 +43,7 @@ class SiteRepository:
                 Site,
                 latest_measurement.c.consumption_kw,
                 latest_measurement.c.data_quality,
+                latest_measurement.c.measurement_date,
             )
             .join(UserSite, UserSite.site_id == Site.site_id)
             .outerjoin(latest_measurement, latest_measurement.c.site_id == Site.site_id)
@@ -55,8 +57,11 @@ class SiteRepository:
                 **SiteRead.model_validate(site).model_dump(),
                 current_consumption_kw=consumption_kw,
                 data_quality=data_quality,
+                measurement_date=measurement_date,
             )
-            for site, consumption_kw, data_quality in query.order_by(Site.site_id).all()
+            for site, consumption_kw, data_quality, measurement_date in query.order_by(
+                Site.site_id
+            ).all()
         ]
 
     def get_by_id(self, site_id: str) -> SiteRead | None:

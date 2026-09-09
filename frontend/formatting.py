@@ -1,5 +1,9 @@
 from datetime import datetime, timezone
 
+# `datetime.fromisoformat` (< 3.11) ne comprend pas le suffixe `Z` : on le
+# remplace par l'offset UTC explicite avant parsing.
+_UTC_ISO_SUFFIX = "+00:00"
+
 SITE_TYPE_LABELS = {
     "office": "Bureau",
     "factory": "Usine",
@@ -200,6 +204,39 @@ def format_power_factor(value: float | None) -> str:
     return f"{value:.2f}"
 
 
+def _parse_iso_datetime(value: str) -> datetime:
+    """Parse un horodatage ISO 8601, en acceptant le suffixe `Z` (UTC)."""
+    return datetime.fromisoformat(value.replace("Z", _UTC_ISO_SUFFIX))
+
+
+def format_time_of_day(moment: str | datetime | None) -> str:
+    """Heure d'un horodatage au format `HH:MM` (ex. `18:00`)."""
+    if moment is None:
+        return "—"
+    if isinstance(moment, str):
+        moment = _parse_iso_datetime(moment)
+    return moment.strftime("%H:%M")
+
+
+def format_date_fr(moment: str | datetime | None) -> str:
+    """Date d'un horodatage au format `JJ/MM/AAAA` (ex. `28/08/2026`)."""
+    if moment is None:
+        return "—"
+    if isinstance(moment, str):
+        moment = _parse_iso_datetime(moment)
+    return moment.strftime("%d/%m/%Y")
+
+
+def format_day_time(moment: str | datetime | None) -> str:
+    """Jour et heure d'un horodatage au format `JJ/MM à HH:MM`
+    (ex. `09/09 à 14:00`)."""
+    if moment is None:
+        return "—"
+    if isinstance(moment, str):
+        moment = _parse_iso_datetime(moment)
+    return moment.strftime("%d/%m à %H:%M")
+
+
 def site_option_label(site: dict) -> str:
     name = site.get("site_name") or site.get("site_id") or "Site"
     location = site.get("location")
@@ -213,19 +250,16 @@ def _as_aware_utc(moment: str | datetime | None) -> datetime | None:
     if moment is None:
         return None
     if isinstance(moment, str):
-        moment = datetime.fromisoformat(moment.replace("Z", "+00:00"))
+        moment = _parse_iso_datetime(moment)
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
     return moment
 
 def relative_time(moment: str | datetime | None, *, now: datetime | None = None) -> str:
+    # `_as_aware_utc` renvoie déjà un `datetime` aware UTC (ou `None`).
     moment = _as_aware_utc(moment)
     if moment is None:
         return "Date inconnue"
-    if isinstance(moment, str):
-        moment = datetime.fromisoformat(moment.replace("Z", "+00:00"))
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
 
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
