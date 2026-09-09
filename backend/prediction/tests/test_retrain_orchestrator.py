@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -14,16 +15,31 @@ DRIFT = DriftResult(feature_scores={"lag_1h": 0.9}, drifted_features=["lag_1h"],
 
 
 # Le modèle multi-horizon exige lag_168h (historique) et target_h48 (futur
-# connu jusqu'à T+48h) pour qu'une ligne soit exploitable : cf. test_training_pipeline.py.
-N_ROWS = 25_000
+# connu jusqu'à T+48h) pour qu'une ligne soit exploitable, mais un signal
+# hebdomadaire n'est réellement APPRENABLE par XGBoost que sur plusieurs
+# semaines de train (cf. test_training_pipeline.py pour le raisonnement complet).
+N_ROWS = 10_000
+MINUTES_PER_ROW = 10  # aligné sur ROWS_PER_HOUR=6 (échantillonnage 10 min)
 
 
-def _linear_raw_frame(n: int = N_ROWS, start: datetime = START) -> pd.DataFrame:
+def _seasonal_raw_frame(n: int = N_ROWS, start: datetime = START, seed: int = 0) -> pd.DataFrame:
+    """Consommation bornée, saisonnalité journalière/hebdomadaire + bruit --
+    cf. test_training_pipeline.py::_seasonal_raw_frame pour le raisonnement
+    (XGBoost n'extrapole pas une rampe non bornée)."""
+    rng = np.random.default_rng(seed)
+    minutes = np.arange(n)
+    hours = (minutes * MINUTES_PER_ROW / 60.0) % 24
+    day_of_week = (minutes * MINUTES_PER_ROW // (60 * 24)) % 7
+    is_weekend = (day_of_week >= 5).astype(float)
+
+    daily_pattern = 10 + 6 * np.sin((hours - 7) / 24 * 2 * np.pi) + 3 * np.sin((hours - 18) / 12 * 2 * np.pi)
+    consumption = np.clip(daily_pattern - 2.0 * is_weekend + rng.normal(0, 0.5, size=n), 0.5, None)
+
     return pd.DataFrame(
         {
             "site_id": "SITE_A",
-            "measurement_date": [start + timedelta(minutes=i) for i in range(n)],
-            "consumption_kw": [float(i) for i in range(n)],
+            "measurement_date": [start + timedelta(minutes=MINUTES_PER_ROW * i) for i in range(n)],
+            "consumption_kw": consumption,
             "data_quality": "good",
             "null_reason": None,
         }
@@ -60,7 +76,7 @@ def _settings(tracking_uri: str, **overrides) -> PredictionSettings:
 
 
 def test_trains_when_no_champion_exists(mlflow_tracking_uri, monkeypatch):
-    _patch_measurements(monkeypatch, _linear_raw_frame())
+    _patch_measurements(monkeypatch, _seasonal_raw_frame())
     _patch_no_ground_truth(monkeypatch)
     settings = _settings(mlflow_tracking_uri)
 
@@ -73,7 +89,7 @@ def test_trains_when_no_champion_exists(mlflow_tracking_uri, monkeypatch):
 
 
 def test_skips_when_nothing_changed_since_champion(mlflow_tracking_uri, monkeypatch):
-    raw = _linear_raw_frame()
+    raw = _seasonal_raw_frame()
     _patch_measurements(monkeypatch, raw)
     _patch_no_ground_truth(monkeypatch)
     settings = _settings(mlflow_tracking_uri, min_new_rows=1_000_000)
@@ -90,14 +106,14 @@ def test_skips_when_nothing_changed_since_champion(mlflow_tracking_uri, monkeypa
 
 
 def test_retrains_when_enough_new_rows_accumulated(mlflow_tracking_uri, monkeypatch):
-    _patch_measurements(monkeypatch, _linear_raw_frame(n=N_ROWS))
+    _patch_measurements(monkeypatch, _seasonal_raw_frame(n=N_ROWS))
     _patch_no_ground_truth(monkeypatch)
     settings = _settings(mlflow_tracking_uri, min_new_rows=100)
 
     first_decision, first_result = train_if_needed(settings=settings)
     assert first_result is not None
 
-    _patch_measurements(monkeypatch, _linear_raw_frame(n=N_ROWS + 2000))
+    _patch_measurements(monkeypatch, _seasonal_raw_frame(n=N_ROWS + 2000))
     _patch_drift(monkeypatch, NO_DRIFT)
     second_decision, second_result = train_if_needed(settings=settings)
 
@@ -107,7 +123,7 @@ def test_retrains_when_enough_new_rows_accumulated(mlflow_tracking_uri, monkeypa
 
 
 def test_retrains_when_drift_detected(mlflow_tracking_uri, monkeypatch):
-    _patch_measurements(monkeypatch, _linear_raw_frame())
+    _patch_measurements(monkeypatch, _seasonal_raw_frame())
     _patch_no_ground_truth(monkeypatch)
     settings = _settings(mlflow_tracking_uri, min_new_rows=1_000_000)
 
@@ -125,7 +141,7 @@ def test_retrains_when_drift_detected(mlflow_tracking_uri, monkeypatch):
 def test_retrains_and_recovers_when_champion_artifact_is_unreachable(mlflow_tracking_uri, monkeypatch, tmp_path):
     import shutil
 
-    _patch_measurements(monkeypatch, _linear_raw_frame())
+    _patch_measurements(monkeypatch, _seasonal_raw_frame())
     _patch_no_ground_truth(monkeypatch)
     settings = _settings(mlflow_tracking_uri, min_new_rows=1_000_000)
 

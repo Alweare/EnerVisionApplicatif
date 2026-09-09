@@ -1,7 +1,8 @@
 import mlflow
 import numpy as np
 import pytest
-from sklearn.linear_model import LinearRegression
+from sklearn.multioutput import MultiOutputRegressor
+from xgboost import XGBRegressor
 
 from prediction.training.training_service import train_model, evaluate_model
 
@@ -9,38 +10,23 @@ from prediction.training.training_service import train_model, evaluate_model
 @pytest.fixture
 def clean_dataset():
     """
-    Relation parfaitement linéaire :
-    y = 2x
+    Deux sorties, relations propres : y1 = 2x, y2 = 3x.
 
-    La régression linéaire doit donc obtenir un MAE proche de 0.
+    MultiOutputRegressor(XGBRegressor) exige une cible 2D (n_échantillons,
+    n_sorties) -- contrairement à l'ancienne LinearRegression, un `y` 1D lève
+    une `ValueError` (`y must have at least two dimensions for multi-output
+    regression`).
+
+    X_test reste DANS la plage d'entraînement (1..8) : XGBoost est un modèle
+    à base d'arbres, il n'extrapole pas linéairement au-delà du dernier split
+    -- contrairement à une régression linéaire, un test hors plage ne
+    mesurerait pas la même chose (interpolation vs extrapolation).
     """
-    X_train = np.array([
-        [1],
-        [2],
-        [3],
-        [4],
-        [5],
-    ])
+    X_train = np.array([[1], [2], [3], [4], [5], [6], [7], [8]])
+    y_train = np.column_stack([2 * X_train.ravel(), 3 * X_train.ravel()])
 
-    y_train = np.array([
-        2,
-        4,
-        6,
-        8,
-        10,
-    ])
-
-    X_test = np.array([
-        [6],
-        [7],
-        [8],
-    ])
-
-    y_test = np.array([
-        12,
-        14,
-        16,
-    ])
+    X_test = np.array([[2], [4], [6]])
+    y_test = np.column_stack([2 * X_test.ravel(), 3 * X_test.ravel()])
 
     return X_train, X_test, y_train, y_test
 
@@ -56,7 +42,8 @@ def test_train_model_returns_model_and_run_id(
         y_train,
     )
 
-    assert isinstance(model, LinearRegression)
+    assert isinstance(model, MultiOutputRegressor)
+    assert isinstance(model.estimator, XGBRegressor)
 
     assert run_id is not None
     assert isinstance(run_id, str)
@@ -74,8 +61,12 @@ def test_train_model_logged_model_is_actually_loadable(
     """
     Critère d'acceptation : l'URI renvoyée par `train_model` doit pointer vers
     un artefact réellement récupérable, pas seulement vers un identifiant.
+
+    `MultiOutputRegressor(XGBRegressor)` n'a pas de `.coef_` (spécifique aux
+    modèles linéaires) : on compare les prédictions du modèle rechargé à
+    celles de l'original, pas les coefficients internes.
     """
-    X_train, _, y_train, _ = clean_dataset
+    X_train, X_test, y_train, _ = clean_dataset
 
     model, _, model_uri = train_model(
         X_train,
@@ -84,7 +75,7 @@ def test_train_model_logged_model_is_actually_loadable(
 
     reloaded = mlflow.sklearn.load_model(model_uri)
 
-    assert reloaded.coef_ == pytest.approx(model.coef_)
+    assert reloaded.predict(X_test) == pytest.approx(model.predict(X_test))
 
 
 def test_training_logs_expected_parameters(
@@ -101,7 +92,9 @@ def test_training_logs_expected_parameters(
 
     run = mlflow.get_run(run_id)
 
-    assert run.data.params["fit_intercept"] == "True"
+    assert run.data.params["model_type"] == "XGBRegressor"
+    assert run.data.params["multi_output_strategy"] == "MultiOutputRegressor"
+    assert run.data.params["n_estimators"] == "300"
     assert run.data.params["n_train_rows"] == str(len(X_train))
     assert run.data.params["dvc_hash"] == "abc123"
 
@@ -129,9 +122,11 @@ def test_evaluate_model_logs_mae_in_same_run(
     assert "mae" in run.data.metrics
     assert run.data.metrics["mae"] == pytest.approx(mae)
 
-    # Relation parfaitement linéaire y = 2x
-    # donc erreur quasiment nulle.
-    assert mae == pytest.approx(0.0, abs=1e-10)
+    # Relations propres (y1=2x, y2=3x), test dans la plage d'entraînement :
+    # XGBoost (300 arbres) doit s'en approcher de très près, sans viser le
+    # zéro machine d'une régression linéaire (boosting itératif, pas de
+    # solution analytique exacte).
+    assert mae < 1.0
 
 
 def test_noisy_data_produces_higher_mae(
@@ -158,9 +153,9 @@ def test_noisy_data_produces_higher_mae(
     )
 
     noisy_y_test = np.array([
-        20,
-        5,
-        30,
+        [200.0, -50.0],
+        [5.0, 300.0],
+        [-100.0, 5.0],
     ])
 
     noisy_model, noisy_run_id, _ = train_model(
