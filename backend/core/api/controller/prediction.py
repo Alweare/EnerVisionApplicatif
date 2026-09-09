@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from core.api.schemas import PredictionRead
 from core.api.service.prediction_service import (
-    ModelNotAvailableError,
+    PredictionNotAvailableError,
     PredictionService,
     SiteNotFoundError,
 )
@@ -18,8 +18,10 @@ router = APIRouter(prefix="/api/v1/backend/prediction", tags=["Predictions"])
     response_model=PredictionRead,
     summary="Prédiction de consommation d'un site",
     description=(
-        "Retourne la prédiction de consommation la plus récente pour un site, "
-        "calculée à partir du modèle MLflow `consumption-predictor`."
+        "Retourne la prédiction de consommation courante pour un site "
+        "(prochaine échéance à venir, sinon la plus récente). Les prédictions "
+        "sont précalculées à partir du modèle MLflow et stockées dans "
+        "`ener.prediction`."
     ),
     responses={
         404: {
@@ -28,7 +30,7 @@ router = APIRouter(prefix="/api/v1/backend/prediction", tags=["Predictions"])
         },
         503: {
             "model": ErrorDetail,
-            "description": "Aucun modèle de prédiction disponible",
+            "description": "Aucune prédiction disponible pour ce site",
         },
     },
 )
@@ -41,5 +43,5 @@ def get_site_prediction(
         return service.get_prediction(site_id)
     except SiteNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
-    except ModelNotAvailableError as error:
+    except PredictionNotAvailableError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error

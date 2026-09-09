@@ -25,16 +25,21 @@ class SiteWithCurrentRead(SiteRead):
 
 
 class PredictionRead(BaseModel):
+    # `protected_namespaces=()` : sans quoi Pydantic v2 émet un warning sur le
+    # champ `model_version` (préfixe `model_` réservé).
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    prediction_id: UUID
     site_id: str = Field(examples=["SITE001"])
-    predicted_consumption_kw: float = Field(examples=[187.3])
-    prediction_date: datetime = Field(
+    predicted_for: datetime = Field(
         description="Horodatage visé par la prédiction.",
         examples=["2026-09-08T13:00:00"],
     )
-    model_name: str = Field(examples=["consumption-predictor"])
-    model_version: str | None = Field(default=None, examples=["3"])
-    generated_at: datetime = Field(
-        description="Date de génération de la prédiction par l'API.",
+    predicted_consumption_kw: float | None = Field(default=None, examples=[187.3])
+    model_version: str | None = Field(default=None, examples=["v0.1.0-seed"])
+    created_at: datetime | None = Field(
+        default=None,
+        description="Date de génération de la prédiction.",
     )
 
 
