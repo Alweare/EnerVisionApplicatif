@@ -57,6 +57,13 @@ if [[ "$SERVICE" == "core" ]]; then
     PORT_ARGS=(-p 8000:8000)
 fi
 
+# frontend a besoin de la config OIDC Streamlit (st.login()/st.user), pas
+# fournie par le montage /run/secrets générique ci-dessous.
+VOLUME_ARGS=()
+if [[ "$SERVICE" == "frontend" ]]; then
+    VOLUME_ARGS=(-v /opt/enervisionG3/secrets/streamlit-secrets.toml:/frontend/.streamlit/secrets.toml:ro)
+fi
+
 docker run -d \
     --name "$SERVICE" \
     --restart unless-stopped \
@@ -64,6 +71,7 @@ docker run -d \
     --env-file /opt/enervisionG3/.env \
     -v /opt/enervisionG3/secrets:/run/secrets:ro \
     "${PORT_ARGS[@]}" \
+    "${VOLUME_ARGS[@]}" \
     "$IMAGE"
 
 sleep 3
