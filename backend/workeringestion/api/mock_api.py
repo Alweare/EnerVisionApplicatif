@@ -2,7 +2,7 @@ import os
 import httpx
 
 MOCK_API_URL = os.environ.get("MOCK_API_URL", "http://10.105.200.45:8000")
-
+#test
 _client = httpx.AsyncClient(base_url=MOCK_API_URL)
 
 
