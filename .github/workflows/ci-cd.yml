@@ -23,7 +23,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: enervisiong3
+  IMAGE_PREFIX: enervision
 
 jobs:
 
