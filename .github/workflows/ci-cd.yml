@@ -135,7 +135,14 @@ jobs:
     if: needs.changes.outputs.has_changes == 'true'
 
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 40 min : la suite `prediction` entraîne de vrais modèles (xgboost) et
+    # exerce le registry MLflow -- ~15 min en local (4 cœurs), sensiblement
+    # plus sur un runner hébergé 2 vCPU (~25-30 min). Marge volontaire : le job
+    # `test` étant en continue-on-error, un timeout serait SILENCIEUX et
+    # priverait Sonar de la couverture prediction (retour à 0 %). Chaque service
+    # tourne dans son propre job matriciel : ce timeout ne pénalise que
+    # `prediction`, les autres finissent en 1-2 min.
+    timeout-minutes: 40
     continue-on-error: true
 
     strategy:
@@ -194,7 +201,7 @@ jobs:
           pip install pytest pytest-cov
 
       - name: Run tests for impacted service
-        if: steps.check.outputs.has_python == 'true' && matrix.service.name != 'prediction' && matrix.service.name != 'migration'
+        if: steps.check.outputs.has_python == 'true' && matrix.service.name != 'migration'
         env:
           SERVICE_DIR: ${{ matrix.service.dir }}
           SERVICE_ROOT: ${{ matrix.service.root }}

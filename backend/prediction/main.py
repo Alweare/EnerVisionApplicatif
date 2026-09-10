@@ -55,9 +55,14 @@ def _run_train_if_needed() -> int:
 def _run_serve() -> int:
     import uvicorn
 
+    # Interface d'écoute lue depuis l'environnement (jamais codée en dur) :
+    # défaut sûr sur la boucle locale, le conteneur pose PREDICTION_HOST=0.0.0.0
+    # (voir Dockerfile) pour rester joignable derrière le reverse proxy.
+    host = os.environ.get("PREDICTION_HOST", "127.0.0.1")
+
     uvicorn.run(
         "prediction.api.app:app",
-        host="0.0.0.0",
+        host=host,
         port=int(os.environ.get("PORT", "8000")),
     )
     return 0

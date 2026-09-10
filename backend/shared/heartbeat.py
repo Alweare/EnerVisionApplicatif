@@ -15,7 +15,15 @@ import pathlib
 import time
 
 
-CHEMIN = pathlib.Path(os.environ.get("HEARTBEAT_FILE", "/tmp/heartbeat"))
+# Emplacement du fichier de battement. Défaut dans le répertoire personnel du
+# compte qui exécute le service (non accessible en écriture par d'autres
+# utilisateurs), plutôt qu'un répertoire public partagé type /tmp où un tiers
+# pourrait pré-créer ou remplacer le fichier. Le service et le healthcheck
+# tournant sous le même compte, ils calculent le même chemin. Surchargé par
+# HEARTBEAT_FILE (docker-compose).
+CHEMIN = pathlib.Path(
+    os.environ.get("HEARTBEAT_FILE", str(pathlib.Path.home() / ".enervision_heartbeat"))
+)
 
 
 def touch() -> None:

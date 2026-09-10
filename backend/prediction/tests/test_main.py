@@ -88,11 +88,27 @@ def test_main_requires_a_command():
 
 
 @patch("uvicorn.run")
-def test_serve_command_runs_uvicorn_on_the_api_app(mock_run):
+def test_serve_command_runs_uvicorn_on_the_api_app(mock_run, monkeypatch):
+    monkeypatch.delenv("PREDICTION_HOST", raising=False)
+
     exit_code = main(["serve"])
 
     assert exit_code == 0
     mock_run.assert_called_once()
     args, kwargs = mock_run.call_args
     assert args[0] == "prediction.api.app:app"
+    # Défaut sûr : boucle locale quand PREDICTION_HOST n'est pas fourni.
+    assert kwargs["host"] == "127.0.0.1"
+
+
+@patch("uvicorn.run")
+def test_serve_command_binds_host_from_environment(mock_run, monkeypatch):
+    # En conteneur, le Dockerfile pose PREDICTION_HOST=0.0.0.0 : l'hôte doit
+    # être repris tel quel pour rester joignable.
+    monkeypatch.setenv("PREDICTION_HOST", "0.0.0.0")
+
+    exit_code = main(["serve"])
+
+    assert exit_code == 0
+    _args, kwargs = mock_run.call_args
     assert kwargs["host"] == "0.0.0.0"
