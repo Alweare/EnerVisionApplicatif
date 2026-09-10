@@ -1,6 +1,6 @@
 import streamlit as st
 
-
+#test
 def login_page() -> None:
     """Écran de connexion : seul contenu visible tant qu'on n'est pas authentifié."""
     st.title("EnerVision")

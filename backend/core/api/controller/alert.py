@@ -2,7 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-#test
+
 from core.api.schemas import AlertRead
 from core.api.service.alert_service import AlertService, SiteNotFoundError
 from shared.database import get_db
