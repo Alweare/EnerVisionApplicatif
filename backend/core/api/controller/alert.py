@@ -10,7 +10,7 @@ from core.schemas import ErrorDetail
 
 router = APIRouter(prefix="/api/v1/backend/alerts", tags=["Alerts"])
 
-#test
+
 @router.get(
     "",
     response_model=list[AlertRead],
