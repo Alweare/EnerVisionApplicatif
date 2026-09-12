@@ -140,7 +140,7 @@ def test_drift_reference_roundtrip(mlflow_tracking_uri, X_y):
 
     version = registry.register_challenger(client, MODEL_NAME, model_uri)
 
-    loaded = registry.load_drift_reference(client, version)
+    loaded = registry.load_drift_reference(version)
     assert loaded == reference
 
 
@@ -160,7 +160,7 @@ def test_drift_reference_survives_model_artifact_being_unreachable(mlflow_tracki
     models_dir = tmp_path / "artifacts" / "models"
     shutil.rmtree(models_dir, ignore_errors=True)
 
-    loaded = registry.load_drift_reference(client, version)
+    loaded = registry.load_drift_reference(version)
     assert loaded == reference
 
 
@@ -169,7 +169,7 @@ def test_load_drift_reference_returns_none_when_missing(mlflow_tracking_uri, X_y
     model_uri = _log_model_run(*X_y)
     version = registry.register_challenger(client, MODEL_NAME, model_uri)
 
-    assert registry.load_drift_reference(client, version) is None
+    assert registry.load_drift_reference(version) is None
 
 
 def test_get_run_metric_and_param(mlflow_tracking_uri):

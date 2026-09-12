@@ -69,10 +69,10 @@ class HistoricalDataSeeder:
             return len(data) if isinstance(data, list) else 1
 
         except httpx.HTTPStatusError as exc:
-            logger.error("Erreur HTTP %s lors de la requête : %s", exc.response.status_code, exc)
+            logger.exception("Erreur HTTP %s lors de la requête : %s", exc.response.status_code, exc)
             return 0
         except Exception as exc:
-            logger.error("Erreur inattendue : %s", exc)
+            logger.exception("Erreur inattendue : %s", exc)
             return 0
 
     async def run(self, days_back: int = DAYS_BACK, chunk_hours: int = 24):

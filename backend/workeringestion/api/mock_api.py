@@ -1,8 +1,15 @@
 import os
 import httpx
 
-MOCK_API_URL = os.environ.get("MOCK_API_URL", "http://10.105.200.45:8000")
-#test
+# L'adresse de l'API mock dépend de l'environnement : elle est fournie par
+# MOCK_API_URL (.env / docker-compose), jamais codée en dur. Le défaut ne vise
+# que le développement local (mock lancé sur la machine). HTTP est assumé :
+# le mock n'expose pas de TLS et n'est joignable que depuis le réseau privé.
+# Une valeur vide (variable `${MOCK_API_URL}` non définie côté compose) retombe
+# aussi sur le défaut.
+DEFAULT_MOCK_API_URL = "http://localhost:8000"
+MOCK_API_URL = os.environ.get("MOCK_API_URL") or DEFAULT_MOCK_API_URL
+
 _client = httpx.AsyncClient(base_url=MOCK_API_URL)
 
 

@@ -1,5 +1,6 @@
 import logging
 from functools import lru_cache
+from typing import Annotated
 
 import httpx
 import jwt
@@ -75,7 +76,7 @@ def _decode_token(token: str) -> dict:
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)],
 ) -> AuthenticatedUser:
     if credentials is None:
         raise HTTPException(

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import mlflow
 import numpy as np
 import pandas as pd
+from mlflow.entities.model_registry import ModelVersion
 from mlflow.tracking import MlflowClient
 from sklearn.metrics import mean_absolute_error
 
@@ -95,6 +96,39 @@ def _mae_by_horizon(Y_true: pd.DataFrame, predictions) -> dict[int, float]:
     }
 
 
+@dataclass(frozen=True)
+class _CandidateEvaluation:
+    """Performances du candidat sur le jeu de test (et de validation)."""
+
+    mae_by_horizon: dict[int, float]
+    validation_mae_by_horizon: dict[int, float]
+    baseline_mae_by_horizon: dict[int, float]
+    mae_by_key_horizon: dict[int, float]
+    baseline_mae_by_key_horizon: dict[int, float]
+    mae_mean: float
+    improvement_vs_baseline_by_key_horizon: dict[int, float]
+
+
+@dataclass(frozen=True)
+class _ChampionEvaluation:
+    """
+    Performances du champion actuel sur le même jeu de test. Tout à None s'il
+    n'y a pas de champion, ou si son artefact est inaccessible (`unavailable`).
+    """
+
+    mae_by_key_horizon: dict[int, float] | None = None
+    improvement_by_key_horizon: dict[int, float] | None = None
+    unavailable: bool = False
+
+    @property
+    def mae_h1(self) -> float | None:
+        return self.mae_by_key_horizon[1] if self.mae_by_key_horizon else None
+
+    @property
+    def improvement_h1(self) -> float | None:
+        return self.improvement_by_key_horizon[1] if self.improvement_by_key_horizon else None
+
+
 def run_training_pipeline(
     settings: PredictionSettings | None = None,
     trigger_source: str = "cli_train",
@@ -105,6 +139,83 @@ def run_training_pipeline(
     mlflow.set_experiment(settings.mlflow_experiment_name)
     client = MlflowClient()
 
+    train, validation, test = _build_splits()
+
+    champion_version = registry.get_champion_version(client, settings.mlflow_model_name)
+    reference_stats = compute_reference_stats(train, DRIFT_FEATURE_COLUMNS)
+    drift_result = _compute_drift(champion_version, test, settings.drift_threshold)
+
+    model, run_id, model_uri = _train_candidate(train)
+    candidate = _evaluate_candidate(model, validation, test)
+    champion = _evaluate_champion(settings, champion_version, test, candidate.mae_by_key_horizon)
+
+    promoted, reason = _decide_promotion(
+        settings=settings,
+        has_champion=champion_version is not None,
+        champion_unavailable=champion.unavailable,
+        mae_by_key_horizon=candidate.mae_by_key_horizon,
+        baseline_mae_by_key_horizon=candidate.baseline_mae_by_key_horizon,
+        champion_mae_by_key_horizon=champion.mae_by_key_horizon,
+    )
+
+    with mlflow.start_run(run_id=run_id):
+        _log_run(train, validation, test, candidate, champion, drift_result)
+        mlflow.set_tag("trigger_source", trigger_source)
+        if retrain_reasons:
+            mlflow.set_tag("retrain_reasons", ",".join(retrain_reasons))
+        if promoted:
+            registry.save_drift_reference(reference_stats)
+
+    version = _register_candidate(client, settings.mlflow_model_name, model_uri, promoted, reason, champion)
+
+    logger.info(
+        "candidate evaluated",
+        extra={
+            "event": "candidate_evaluated",
+            "run_id": run_id,
+            "model_name": settings.mlflow_model_name,
+            "model_version": version.version,
+            "mae_h1": candidate.mae_by_key_horizon[1],
+            "mae_h24": candidate.mae_by_key_horizon[24],
+            "mae_h48": candidate.mae_by_key_horizon[MAX_HORIZON_HOURS],
+            "baseline_mae_h1": candidate.baseline_mae_by_key_horizon[1],
+            "champion_mae_h1": champion.mae_h1,
+            "promoted": promoted,
+        },
+    )
+
+    return TrainingPipelineResult(
+        run_id=run_id,
+        model_version=str(version.version),
+        mae_by_horizon=candidate.mae_by_horizon,
+        baseline_mae_by_horizon=candidate.baseline_mae_by_horizon,
+        mae_h1=candidate.mae_by_key_horizon[1],
+        mae_h24=candidate.mae_by_key_horizon[24],
+        mae_h48=candidate.mae_by_key_horizon[MAX_HORIZON_HOURS],
+        baseline_mae_h1=candidate.baseline_mae_by_key_horizon[1],
+        baseline_mae_h24=candidate.baseline_mae_by_key_horizon[24],
+        baseline_mae_h48=candidate.baseline_mae_by_key_horizon[MAX_HORIZON_HOURS],
+        mae_mean=candidate.mae_mean,
+        mae_improvement_vs_baseline_by_key_horizon=candidate.improvement_vs_baseline_by_key_horizon,
+        mae=candidate.mae_by_key_horizon[1],
+        baseline_mae=candidate.baseline_mae_by_key_horizon[1],
+        mae_improvement_vs_baseline=candidate.improvement_vs_baseline_by_key_horizon[1],
+        validation_mae=candidate.validation_mae_by_horizon[1],
+        champion_mae=champion.mae_h1,
+        champion_mae_by_key_horizon=champion.mae_by_key_horizon,
+        mae_improvement_vs_champion=champion.improvement_h1,
+        mae_improvement_vs_champion_by_key_horizon=champion.improvement_by_key_horizon,
+        promoted=promoted,
+        reason=reason,
+        champion_unavailable=champion.unavailable,
+        drift_result=drift_result,
+        n_train_rows=len(train),
+        n_validation_rows=len(validation),
+        n_test_rows=len(test),
+    )
+
+
+def _build_splits() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     logger.info("dataset build started", extra={"event": "dataset_build_started"})
     df = build_dataset()
     # Colonnes baseline_h{h} calculées sur la série continue, avant tout split
@@ -121,194 +232,187 @@ def run_training_pipeline(
             "n_test_rows": len(test),
         },
     )
+    return train, validation, test
 
-    X_train, Y_train = train[FEATURE_COLUMNS], train[MULTI_HORIZON_TARGET_COLUMNS]
-    X_validation, Y_validation = validation[FEATURE_COLUMNS], validation[MULTI_HORIZON_TARGET_COLUMNS]
-    X_test, Y_test = test[FEATURE_COLUMNS], test[MULTI_HORIZON_TARGET_COLUMNS]
 
-    champion_version = registry.get_champion_version(client, settings.mlflow_model_name)
+def _compute_drift(
+    champion_version: ModelVersion | None, test: pd.DataFrame, drift_threshold: float
+) -> DriftResult | None:
+    """Drift du jeu de test par rapport à la référence du champion (None si aucune)."""
+    if champion_version is None:
+        return None
+    champion_reference = registry.load_drift_reference(champion_version)
+    if champion_reference is None:
+        return None
 
-    reference_stats = compute_reference_stats(train, DRIFT_FEATURE_COLUMNS)
-    drift_result: DriftResult | None = None
-    if champion_version is not None:
-        champion_reference = registry.load_drift_reference(client, champion_version)
-        if champion_reference is not None:
-            drift_result = detect_drift(champion_reference, test, settings.drift_threshold)
-            logger.info(
-                "drift computed",
-                extra={
-                    "event": "drift_computed",
-                    "drift_detected": drift_result.drift_detected,
-                    "drift_score": max(drift_result.feature_scores.values(), default=0.0),
-                },
-            )
+    drift_result = detect_drift(champion_reference, test, drift_threshold)
+    logger.info(
+        "drift computed",
+        extra={
+            "event": "drift_computed",
+            "drift_detected": drift_result.drift_detected,
+            "drift_score": max(drift_result.feature_scores.values(), default=0.0),
+        },
+    )
+    return drift_result
 
+
+def _train_candidate(train: pd.DataFrame):
     try:
         logger.info("training started", extra={"event": "training_started"})
-        model, run_id, model_uri = train_model(X_train, Y_train)
+        return train_model(train[FEATURE_COLUMNS], train[MULTI_HORIZON_TARGET_COLUMNS])
     except Exception:
         logger.exception("training failed", extra={"event": "training_failed"})
         raise
 
-    mae_by_horizon = _mae_by_horizon(Y_test, model.predict(X_test))
-    validation_mae_by_horizon = _mae_by_horizon(Y_validation, model.predict(X_validation))
+
+def _evaluate_candidate(model, validation: pd.DataFrame, test: pd.DataFrame) -> _CandidateEvaluation:
+    mae_by_horizon = _mae_by_horizon(
+        test[MULTI_HORIZON_TARGET_COLUMNS], model.predict(test[FEATURE_COLUMNS])
+    )
+    validation_mae_by_horizon = _mae_by_horizon(
+        validation[MULTI_HORIZON_TARGET_COLUMNS], model.predict(validation[FEATURE_COLUMNS])
+    )
     baseline_mae_by_horizon = multi_horizon_baseline_mae(test, HORIZONS_HOURS)
 
     mae_by_key_horizon = {h: mae_by_horizon[h] for h in KEY_HORIZONS_HOURS}
     baseline_mae_by_key_horizon = {h: baseline_mae_by_horizon[h] for h in KEY_HORIZONS_HOURS}
-    mae_mean = float(np.mean(list(mae_by_horizon.values())))
-    improvement_vs_baseline_by_key_horizon = {
-        h: relative_improvement(baseline_mae_by_key_horizon[h], mae_by_key_horizon[h])
-        for h in KEY_HORIZONS_HOURS
-    }
-
-    champion_mae_by_key_horizon: dict[int, float] | None = None
-    improvement_vs_champion_by_key_horizon: dict[int, float] | None = None
-    champion_unavailable = False
-    if champion_version is not None:
-        try:
-            champion_model = registry.load_champion_model(settings.mlflow_model_name)
-            champion_mae_by_horizon = _mae_by_horizon(Y_test, champion_model.predict(X_test))
-            champion_mae_by_key_horizon = {h: champion_mae_by_horizon[h] for h in KEY_HORIZONS_HOURS}
-            improvement_vs_champion_by_key_horizon = {
-                h: relative_improvement(champion_mae_by_key_horizon[h], mae_by_key_horizon[h])
-                for h in KEY_HORIZONS_HOURS
-            }
-        except registry.ChampionLoadError as error:
-            champion_unavailable = True
-            logger.error(
-                "champion is registered but its model artifact could not be loaded, "
-                "treating this run as a service-recovery candidate",
-                extra={
-                    "event": "champion_unavailable",
-                    "model_name": settings.mlflow_model_name,
-                    "model_version": champion_version.version,
-                    "model_alias": CHAMPION_ALIAS,
-                    "run_id": champion_version.run_id,
-                },
-                exc_info=error,
-            )
-
-    promoted, reason = _decide_promotion(
-        settings=settings,
-        has_champion=champion_version is not None,
-        champion_unavailable=champion_unavailable,
+    return _CandidateEvaluation(
+        mae_by_horizon=mae_by_horizon,
+        validation_mae_by_horizon=validation_mae_by_horizon,
+        baseline_mae_by_horizon=baseline_mae_by_horizon,
         mae_by_key_horizon=mae_by_key_horizon,
         baseline_mae_by_key_horizon=baseline_mae_by_key_horizon,
-        champion_mae_by_key_horizon=champion_mae_by_key_horizon,
-    )
-
-    with mlflow.start_run(run_id=run_id):
-        mlflow.log_param("n_validation_rows", len(validation))
-        mlflow.log_param("n_test_rows", len(test))
-        mlflow.log_param("dataset_max_date", _dataset_max_date(train, validation, test))
-        mlflow.log_param("horizons_hours", f"1-{MAX_HORIZON_HOURS}")
-
-        # Alias rétro-compatibles (= horizon 1h).
-        mlflow.log_metric("mae", mae_by_key_horizon[1])
-        mlflow.log_metric("baseline_mae", baseline_mae_by_key_horizon[1])
-        mlflow.log_metric("mae_improvement_vs_baseline", improvement_vs_baseline_by_key_horizon[1])
-        mlflow.log_metric("validation_mae", validation_mae_by_horizon[1])
-
-        # Horizons clés (§7/§9) : lisibles directement dans l'UI MLflow.
-        mlflow.log_metric("mae_mean", mae_mean)
-        for horizon_hours in KEY_HORIZONS_HOURS:
-            mlflow.log_metric(f"mae_h{horizon_hours}", mae_by_key_horizon[horizon_hours])
-            mlflow.log_metric(f"baseline_mae_h{horizon_hours}", baseline_mae_by_key_horizon[horizon_hours])
-            mlflow.log_metric(
-                f"mae_improvement_vs_baseline_h{horizon_hours}",
-                improvement_vs_baseline_by_key_horizon[horizon_hours],
-            )
-
-        if champion_mae_by_key_horizon is not None:
-            mlflow.log_metric("champion_mae", champion_mae_by_key_horizon[1])
-            mlflow.log_metric("mae_improvement_vs_champion", improvement_vs_champion_by_key_horizon[1])
-            for horizon_hours in KEY_HORIZONS_HOURS:
-                mlflow.log_metric(f"champion_mae_h{horizon_hours}", champion_mae_by_key_horizon[horizon_hours])
-                mlflow.log_metric(
-                    f"mae_improvement_vs_champion_h{horizon_hours}",
-                    improvement_vs_champion_by_key_horizon[horizon_hours],
-                )
-
-        if drift_result is not None:
-            for feature, score in drift_result.feature_scores.items():
-                mlflow.log_metric(f"drift_psi_{feature}", score)
-            mlflow.log_metric("drift_detected", float(drift_result.drift_detected))
-
-        # Détail des 48 horizons : artefact JSON, jamais 48 métriques MLflow
-        # séparées (resterait illisible dans l'UI, §7 du besoin).
-        mlflow.log_dict(
-            {
-                "mae_by_horizon": mae_by_horizon,
-                "baseline_mae_by_horizon": baseline_mae_by_horizon,
-            },
-            MAE_BY_HORIZON_ARTIFACT_PATH,
-        )
-
-        mlflow.set_tag("trigger_source", trigger_source)
-        if retrain_reasons:
-            mlflow.set_tag("retrain_reasons", ",".join(retrain_reasons))
-        if promoted:
-            registry.save_drift_reference(reference_stats)
-
-    version = registry.register_challenger(client, settings.mlflow_model_name, model_uri)
-
-    if promoted:
-        registry.promote_to_champion(client, settings.mlflow_model_name, version.version, reason)
-        if champion_unavailable:
-            client.set_model_version_tag(
-                settings.mlflow_model_name, version.version, "recovered_from_broken_champion", "true"
-            )
-    else:
-        registry.reject_challenger(client, settings.mlflow_model_name, version.version, reason)
-
-    logger.info(
-        "candidate evaluated",
-        extra={
-            "event": "candidate_evaluated",
-            "run_id": run_id,
-            "model_name": settings.mlflow_model_name,
-            "model_version": version.version,
-            "mae_h1": mae_by_key_horizon[1],
-            "mae_h24": mae_by_key_horizon[24],
-            "mae_h48": mae_by_key_horizon[MAX_HORIZON_HOURS],
-            "baseline_mae_h1": baseline_mae_by_key_horizon[1],
-            "champion_mae_h1": champion_mae_by_key_horizon[1] if champion_mae_by_key_horizon else None,
-            "promoted": promoted,
+        mae_mean=float(np.mean(list(mae_by_horizon.values()))),
+        improvement_vs_baseline_by_key_horizon={
+            h: relative_improvement(baseline_mae_by_key_horizon[h], mae_by_key_horizon[h])
+            for h in KEY_HORIZONS_HOURS
         },
     )
 
-    return TrainingPipelineResult(
-        run_id=run_id,
-        model_version=str(version.version),
-        mae_by_horizon=mae_by_horizon,
-        baseline_mae_by_horizon=baseline_mae_by_horizon,
-        mae_h1=mae_by_key_horizon[1],
-        mae_h24=mae_by_key_horizon[24],
-        mae_h48=mae_by_key_horizon[MAX_HORIZON_HOURS],
-        baseline_mae_h1=baseline_mae_by_key_horizon[1],
-        baseline_mae_h24=baseline_mae_by_key_horizon[24],
-        baseline_mae_h48=baseline_mae_by_key_horizon[MAX_HORIZON_HOURS],
-        mae_mean=mae_mean,
-        mae_improvement_vs_baseline_by_key_horizon=improvement_vs_baseline_by_key_horizon,
-        mae=mae_by_key_horizon[1],
-        baseline_mae=baseline_mae_by_key_horizon[1],
-        mae_improvement_vs_baseline=improvement_vs_baseline_by_key_horizon[1],
-        validation_mae=validation_mae_by_horizon[1],
-        champion_mae=champion_mae_by_key_horizon[1] if champion_mae_by_key_horizon else None,
-        champion_mae_by_key_horizon=champion_mae_by_key_horizon,
-        mae_improvement_vs_champion=(
-            improvement_vs_champion_by_key_horizon[1] if improvement_vs_champion_by_key_horizon else None
-        ),
-        mae_improvement_vs_champion_by_key_horizon=improvement_vs_champion_by_key_horizon,
-        promoted=promoted,
-        reason=reason,
-        champion_unavailable=champion_unavailable,
-        drift_result=drift_result,
-        n_train_rows=len(train),
-        n_validation_rows=len(validation),
-        n_test_rows=len(test),
+
+def _evaluate_champion(
+    settings: PredictionSettings,
+    champion_version: ModelVersion | None,
+    test: pd.DataFrame,
+    mae_by_key_horizon: dict[int, float],
+) -> _ChampionEvaluation:
+    if champion_version is None:
+        return _ChampionEvaluation()
+
+    try:
+        champion_model = registry.load_champion_model(settings.mlflow_model_name)
+    except registry.ChampionLoadError:
+        logger.exception(
+            "champion is registered but its model artifact could not be loaded, "
+            "treating this run as a service-recovery candidate",
+            extra={
+                "event": "champion_unavailable",
+                "model_name": settings.mlflow_model_name,
+                "model_version": champion_version.version,
+                "model_alias": CHAMPION_ALIAS,
+                "run_id": champion_version.run_id,
+            },
+        )
+        return _ChampionEvaluation(unavailable=True)
+
+    champion_mae_by_horizon = _mae_by_horizon(
+        test[MULTI_HORIZON_TARGET_COLUMNS], champion_model.predict(test[FEATURE_COLUMNS])
     )
+    champion_mae_by_key_horizon = {h: champion_mae_by_horizon[h] for h in KEY_HORIZONS_HOURS}
+    return _ChampionEvaluation(
+        mae_by_key_horizon=champion_mae_by_key_horizon,
+        improvement_by_key_horizon={
+            h: relative_improvement(champion_mae_by_key_horizon[h], mae_by_key_horizon[h])
+            for h in KEY_HORIZONS_HOURS
+        },
+    )
+
+
+def _log_run(
+    train: pd.DataFrame,
+    validation: pd.DataFrame,
+    test: pd.DataFrame,
+    candidate: _CandidateEvaluation,
+    champion: _ChampionEvaluation,
+    drift_result: DriftResult | None,
+) -> None:
+    """Paramètres, métriques et artefacts du run MLflow actif."""
+    mlflow.log_param("n_validation_rows", len(validation))
+    mlflow.log_param("n_test_rows", len(test))
+    mlflow.log_param("dataset_max_date", _dataset_max_date(train, validation, test))
+    mlflow.log_param("horizons_hours", f"1-{MAX_HORIZON_HOURS}")
+
+    # Alias rétro-compatibles (= horizon 1h).
+    mlflow.log_metric("mae", candidate.mae_by_key_horizon[1])
+    mlflow.log_metric("baseline_mae", candidate.baseline_mae_by_key_horizon[1])
+    mlflow.log_metric("mae_improvement_vs_baseline", candidate.improvement_vs_baseline_by_key_horizon[1])
+    mlflow.log_metric("validation_mae", candidate.validation_mae_by_horizon[1])
+
+    # Horizons clés (§7/§9) : lisibles directement dans l'UI MLflow.
+    mlflow.log_metric("mae_mean", candidate.mae_mean)
+    for horizon_hours in KEY_HORIZONS_HOURS:
+        mlflow.log_metric(f"mae_h{horizon_hours}", candidate.mae_by_key_horizon[horizon_hours])
+        mlflow.log_metric(f"baseline_mae_h{horizon_hours}", candidate.baseline_mae_by_key_horizon[horizon_hours])
+        mlflow.log_metric(
+            f"mae_improvement_vs_baseline_h{horizon_hours}",
+            candidate.improvement_vs_baseline_by_key_horizon[horizon_hours],
+        )
+
+    _log_champion_metrics(champion)
+    _log_drift_metrics(drift_result)
+
+    # Détail des 48 horizons : artefact JSON, jamais 48 métriques MLflow
+    # séparées (resterait illisible dans l'UI, §7 du besoin).
+    mlflow.log_dict(
+        {
+            "mae_by_horizon": candidate.mae_by_horizon,
+            "baseline_mae_by_horizon": candidate.baseline_mae_by_horizon,
+        },
+        MAE_BY_HORIZON_ARTIFACT_PATH,
+    )
+
+
+def _log_champion_metrics(champion: _ChampionEvaluation) -> None:
+    if champion.mae_by_key_horizon is None:
+        return
+    mlflow.log_metric("champion_mae", champion.mae_by_key_horizon[1])
+    mlflow.log_metric("mae_improvement_vs_champion", champion.improvement_by_key_horizon[1])
+    for horizon_hours in KEY_HORIZONS_HOURS:
+        mlflow.log_metric(f"champion_mae_h{horizon_hours}", champion.mae_by_key_horizon[horizon_hours])
+        mlflow.log_metric(
+            f"mae_improvement_vs_champion_h{horizon_hours}",
+            champion.improvement_by_key_horizon[horizon_hours],
+        )
+
+
+def _log_drift_metrics(drift_result: DriftResult | None) -> None:
+    if drift_result is None:
+        return
+    for feature, score in drift_result.feature_scores.items():
+        mlflow.log_metric(f"drift_psi_{feature}", score)
+    mlflow.log_metric("drift_detected", float(drift_result.drift_detected))
+
+
+def _register_candidate(
+    client: MlflowClient,
+    model_name: str,
+    model_uri: str,
+    promoted: bool,
+    reason: str,
+    champion: _ChampionEvaluation,
+) -> ModelVersion:
+    """Enregistre le candidat puis applique la décision (promotion ou rejet)."""
+    version = registry.register_challenger(client, model_name, model_uri)
+
+    if not promoted:
+        registry.reject_challenger(client, model_name, version.version, reason)
+        return version
+
+    registry.promote_to_champion(client, model_name, version.version, reason)
+    if champion.unavailable:
+        client.set_model_version_tag(model_name, version.version, "recovered_from_broken_champion", "true")
+    return version
 
 
 def _decide_promotion(

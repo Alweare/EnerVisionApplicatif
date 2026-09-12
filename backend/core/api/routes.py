@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends
 
 from core.security import AuthenticatedUser, get_current_user
@@ -14,5 +16,5 @@ router = APIRouter(prefix="/api/v1", tags=["Auth"])
         "accepté par l'API."
     ),
 )
-async def get_me(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+async def get_me(user: Annotated[AuthenticatedUser, Depends(get_current_user)]) -> AuthenticatedUser:
     return user

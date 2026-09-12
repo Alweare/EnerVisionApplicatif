@@ -33,9 +33,9 @@ def train_if_needed(
     if champion_version is not None:
         try:
             registry.load_champion_model(settings.mlflow_model_name)
-        except registry.ChampionLoadError as error:
+        except registry.ChampionLoadError:
             champion_unavailable = True
-            logger.error(
+            logger.exception(
                 "champion is registered but its model artifact could not be loaded",
                 extra={
                     "event": "champion_unavailable",
@@ -43,12 +43,11 @@ def train_if_needed(
                     "model_version": champion_version.version,
                     "run_id": champion_version.run_id,
                 },
-                exc_info=error,
             )
 
     drift_result = None
     if champion_version is not None:
-        champion_reference = registry.load_drift_reference(client, champion_version)
+        champion_reference = registry.load_drift_reference(champion_version)
         if champion_reference is not None:
             drift_result = detect_drift(champion_reference, clean_df, settings.drift_threshold)
 

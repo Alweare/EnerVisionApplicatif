@@ -99,7 +99,7 @@ def save_drift_reference(reference_stats: dict) -> None:
     mlflow.log_dict(reference_stats, DRIFT_REFERENCE_ARTIFACT_PATH)
 
 
-def load_drift_reference(client: MlflowClient, model_version: ModelVersion) -> dict | None:
+def load_drift_reference(model_version: ModelVersion) -> dict | None:
     try:
         local_path = download_artifacts(
             run_id=model_version.run_id, artifact_path=DRIFT_REFERENCE_ARTIFACT_PATH

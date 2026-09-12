@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -15,7 +17,6 @@ router = APIRouter(prefix="/api/v1/backend/sites", tags=["Measurements"])
 
 @router.get(
     "/{site_id}/current",
-    response_model=MeasurementRead,
     summary="Dernière mesure d'un site",
     description=(
         "Retourne la mesure la plus récente enregistrée pour un site "
@@ -30,7 +31,7 @@ router = APIRouter(prefix="/api/v1/backend/sites", tags=["Measurements"])
 )
 def get_site_current_measurement(
     site_id: str,
-    db: Session = Depends(get_db),
+    db: Annotated[Session, Depends(get_db)],
 ) -> MeasurementRead:
     service = MeasurementService(db)
     try:
@@ -41,7 +42,6 @@ def get_site_current_measurement(
 
 @router.get(
     "/{site_id}/measurements",
-    response_model=list[MeasurementRead],
     summary="Mesures d'un site",
     description=(
         "Retourne les mesures d'un site, de la plus récente à la plus ancienne "
@@ -56,9 +56,9 @@ def get_site_current_measurement(
 )
 def list_site_measurements(
     site_id: str,
-    limit: int = Query(default=100, ge=1, le=1000),
-    offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
+    db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[MeasurementRead]:
     service = MeasurementService(db)
     try:

@@ -1,7 +1,8 @@
 import logging
 import time
 from contextlib import contextmanager
-#test
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from prediction.api.schemas import ForecastPoint, ForecastResponse, PredictionResponse
@@ -24,6 +25,7 @@ _service = PredictionService()
 
 _NOT_FOUND_DESCRIPTION = "Historique insuffisant pour ce site"
 _UNAVAILABLE_DESCRIPTION = "Aucun modèle champion disponible ou champion inaccessible"
+_INTERNAL_ERROR_DESCRIPTION = "Erreur interne inattendue lors de l'inférence"
 
 
 def get_prediction_service() -> PredictionService:
@@ -50,10 +52,9 @@ def _map_inference_errors(site_id: str, observe_error):
         raise HTTPException(status_code=503, detail="Aucun modèle champion disponible") from error
     except ChampionLoadError as error:
         observe_error("champion_artifact_unavailable", time.perf_counter() - started_at)
-        logger.error(
+        logger.exception(
             "champion model registered but its artifact is unavailable",
             extra={"event": "champion_unavailable", "site_id": site_id},
-            exc_info=error,
         )
         raise HTTPException(
             status_code=503,
@@ -71,15 +72,15 @@ def _map_inference_errors(site_id: str, observe_error):
 
 @router.get(
     "/{site_id}/prediction",
-    response_model=PredictionResponse,
     summary="Prédit la consommation à T+1h pour un site",
     responses={
         404: {"description": _NOT_FOUND_DESCRIPTION},
+        500: {"description": _INTERNAL_ERROR_DESCRIPTION},
         503: {"description": _UNAVAILABLE_DESCRIPTION},
     },
 )
 def get_site_prediction(
-    site_id: str, service: PredictionService = Depends(get_prediction_service)
+    site_id: str, service: Annotated[PredictionService, Depends(get_prediction_service)]
 ) -> PredictionResponse:
     started_at = time.perf_counter()
 
@@ -99,20 +100,21 @@ def get_site_prediction(
 
 @router.get(
     "/{site_id}/forecast",
-    response_model=ForecastResponse,
     summary="Prévision horaire de consommation de T+1h à T+`hours`h (2 jours max)",
     responses={
         404: {"description": _NOT_FOUND_DESCRIPTION},
+        500: {"description": _INTERNAL_ERROR_DESCRIPTION},
         503: {"description": _UNAVAILABLE_DESCRIPTION},
         422: {"description": f"hours hors de la plage autorisée (1 à {MAX_HORIZON_HOURS})"},
     },
 )
 def get_site_forecast(
     site_id: str,
-    hours: int = Query(
-        24, ge=1, le=MAX_HORIZON_HOURS, description=f"Horizon en heures, de 1 à {MAX_HORIZON_HOURS} (2 jours)."
-    ),
-    service: PredictionService = Depends(get_prediction_service),
+    service: Annotated[PredictionService, Depends(get_prediction_service)],
+    hours: Annotated[
+        int,
+        Query(ge=1, le=MAX_HORIZON_HOURS, description=f"Horizon en heures, de 1 à {MAX_HORIZON_HOURS} (2 jours)."),
+    ] = 24,
 ) -> ForecastResponse:
     started_at = time.perf_counter()
 

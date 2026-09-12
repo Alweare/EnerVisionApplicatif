@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -13,7 +14,6 @@ router = APIRouter(prefix="/api/v1/backend/alerts", tags=["Alerts"])
 
 @router.get(
     "",
-    response_model=list[AlertRead],
     summary="Liste des alertes",
     description=(
         "Retourne les alertes de la plus récente à la plus ancienne"
@@ -26,12 +26,12 @@ router = APIRouter(prefix="/api/v1/backend/alerts", tags=["Alerts"])
     },
 )
 def list_alerts(
-    site_id: str | None = Query(default=None, examples=["SITE001"]),
-    since: datetime | None = Query(default=None, examples=["2026-08-09T00:00:00"]),
-    severity: list[str] | None = Query(default=None, examples=[["high", "critical"]]),
-    limit: int = Query(default=100, ge=1, le=1000),
-    offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
+    db: Annotated[Session, Depends(get_db)],
+    site_id: Annotated[str | None, Query(examples=["SITE001"])] = None,
+    since: Annotated[datetime | None, Query(examples=["2026-08-09T00:00:00"])] = None,
+    severity: Annotated[list[str] | None, Query(examples=[["high", "critical"]])] = None,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[AlertRead]:
     service = AlertService(db)
     try:
