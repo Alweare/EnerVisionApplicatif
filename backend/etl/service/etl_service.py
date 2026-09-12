@@ -232,7 +232,7 @@ class ETLService:
                     with self.db.begin_nested():
                         staged_measurements += self.stage_blob(blob_path)
                 except Exception as e:
-                    logger.error(
+                    logger.exception(
                         f"[{blob_path}] Fichier en échec, annulé et sauté "
                         f"(sera rejoué) : {e}"
                     )
@@ -242,7 +242,7 @@ class ETLService:
             self.db.commit()
         except Exception as e:
             self.db.rollback()
-            logger.error(
+            logger.exception(
                 "Erreur pendant le lot, transaction annulée : %d fichier(s) "
                 "seront rejoués au prochain cycle : %s", staged_files, e,
             )
@@ -317,13 +317,13 @@ class ETLService:
                     with self.db.begin_nested():
                         inserted += self.stage_alert_blob(blob_path)
                 except Exception as e:
-                    logger.error(f"[{blob_path}] Blob en échec, sauté : {e}")
+                    logger.exception(f"[{blob_path}] Blob en échec, sauté : {e}")
                     continue
 
             self.db.commit()
         except Exception as e:
             self.db.rollback()
-            logger.error(f"Erreur lors de l'insertion des alertes : {e}")
+            logger.exception(f"Erreur lors de l'insertion des alertes : {e}")
             return 0
 
         logger.info("Alertes : %d nouvelle(s) insérée(s).", inserted)
@@ -357,7 +357,7 @@ class ETLService:
                 self.run()
             except Exception as e:
                 mesures_ok = False
-                logger.error(
+                logger.exception(
                     f"Erreur critique dans le cycle ETL : {e}",
                     extra={"event": "etl.cycle_echec", "phase": "mesures"},
                 )
@@ -368,7 +368,7 @@ class ETLService:
                 self.run_alerts()
             except Exception as e:
                 alertes_ok = False
-                logger.error(
+                logger.exception(
                     f"Erreur critique dans le cycle des alertes : {e}",
                     extra={"event": "etl.cycle_echec", "phase": "alertes"},
                 )

@@ -1,4 +1,5 @@
 __pycache__
+**/__pycache__
 *.pyc
 *.pyo
 *.pyd
@@ -15,13 +16,26 @@ pip-delete-this-directory.txt
 nosetests.xml
 coverage.xml
 *.cover
+htmlcov
 *.log
 .git
+.github
 .gitignore
 .dockerignore
 .pytest_cache
+**/.pytest_cache
 .mypy_cache
 .env
-.env.local
+.env.*
+**/.env
+**/.env.*
 *.md
 tests/
+
+# Secrets : jamais dans un contexte de build (fichiers Docker secrets locaux,
+# clés/certificats, secrets Streamlit).
+secrets/
+certs/
+**/*.pem
+**/*.key
+**/secrets.toml

@@ -36,21 +36,21 @@ async def _upload(blob_name: str, raw_json: str) -> str:
         logger.warning("Blob déjà existant, ignoré : %s", blob_name)
 
     except ClientAuthenticationError:
-        logger.error(
+        logger.exception(
             "SAS d'ingestion invalide ou expiré, blob non écrit : %s. "
             "Renouveler AZURE_SAS_INGESTION.", blob_name,
         )
         raise
 
     except ResourceNotFoundError:
-        logger.error(
+        logger.exception(
             "Conteneur '%s' introuvable, blob non écrit : %s",
             AZURE_STORAGE_CONTAINER_NAME, blob_name,
         )
         raise
 
     except (ServiceRequestError, ServiceResponseError) as e:
-        logger.error("Azure injoignable, blob non écrit : %s (%s)", blob_name, e)
+        logger.exception("Azure injoignable, blob non écrit : %s (%s)", blob_name, e)
         raise
 
     except AzureError:

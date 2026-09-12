@@ -90,9 +90,10 @@ def test_set_status_returns_updated_recommendation(service):
 
 def test_set_status_raises_when_missing(service):
     service.repository.update_status.return_value = None
+    recommendation_id = uuid4()
 
     with pytest.raises(RecommendationNotFoundError):
-        service.set_status(uuid4(), "applied")
+        service.set_status(recommendation_id, "applied")
 
 
 # --- list_for_user ----------------------------------------------------

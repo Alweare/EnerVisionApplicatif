@@ -137,8 +137,9 @@ def test_build_dataset_target_is_consumption_one_hour_later_per_site(monkeypatch
 # --- Garde-fous : pas assez de données -------------------------------
 
 def test_raises_when_dataset_too_small():
+    df = _dataset_frame(1)
     with pytest.raises(NotEnoughDataError):
-        _split_by_cutoff(_dataset_frame(1), 0.8)
+        _split_by_cutoff(df, 0.8)
 
 
 def test_raises_when_all_rows_share_one_date():
@@ -187,8 +188,9 @@ def test_split_train_val_test_keeps_all_columns_for_downstream_use():
 
 
 def test_split_train_val_test_raises_when_dataset_too_small():
+    df = _dataset_frame(2)
     with pytest.raises(NotEnoughDataError):
-        split_train_val_test(_dataset_frame(2))
+        split_train_val_test(df)
 
 
 def test_split_train_val_test_no_row_used_in_more_than_one_split():
@@ -284,8 +286,9 @@ def test_split_train_val_test_multi_horizon_is_chronological_and_complete():
 
 
 def test_split_train_val_test_multi_horizon_raises_when_dataset_too_small():
+    df = _multi_horizon_dataset_frame(2)
     with pytest.raises(NotEnoughDataError):
-        split_train_val_test_multi_horizon(_multi_horizon_dataset_frame(2))
+        split_train_val_test_multi_horizon(df)
 
 
 # --- Features calendaires exclues du calcul de drift ------------------------

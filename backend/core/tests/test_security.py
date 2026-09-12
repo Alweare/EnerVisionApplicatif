@@ -101,36 +101,38 @@ def test_missing_credentials_raises_401(mock_oidc):
 
 
 def test_malformed_token_raises_401(mock_oidc):
+    credentials = _credentials("not-a-jwt")
+
     with pytest.raises(HTTPException) as exc_info:
-        security.get_current_user(_credentials("not-a-jwt"))
+        security.get_current_user(credentials)
 
     assert exc_info.value.status_code == 401
 
 
 def test_expired_token_raises_401(mock_oidc):
     now = int(time.time())
-    token = _make_token(iat=now - 600, exp=now - 300)
+    credentials = _credentials(_make_token(iat=now - 600, exp=now - 300))
 
     with pytest.raises(HTTPException) as exc_info:
-        security.get_current_user(_credentials(token))
+        security.get_current_user(credentials)
 
     assert exc_info.value.status_code == 401
 
 
 def test_wrong_audience_raises_401(mock_oidc):
-    token = _make_token(aud="another-client")
+    credentials = _credentials(_make_token(aud="another-client"))
 
     with pytest.raises(HTTPException) as exc_info:
-        security.get_current_user(_credentials(token))
+        security.get_current_user(credentials)
 
     assert exc_info.value.status_code == 401
 
 
 def test_wrong_issuer_raises_401(mock_oidc):
-    token = _make_token(iss="http://attacker.example/realms/fake")
+    credentials = _credentials(_make_token(iss="http://attacker.example/realms/fake"))
 
     with pytest.raises(HTTPException) as exc_info:
-        security.get_current_user(_credentials(token))
+        security.get_current_user(credentials)
 
     assert exc_info.value.status_code == 401
 
